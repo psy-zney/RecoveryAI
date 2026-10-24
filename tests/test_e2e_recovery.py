@@ -103,6 +103,11 @@ def run_all_e2e_tests():
 
     # 3. Test Case 1: Mất phân vùng (Lost Partition Recovery)
     case1_img = os.path.join(CORRUPTED_DIR, "case1_lost_partition.img")
+    if not os.path.exists(case1_img):
+        print("[INIT] Chưa có dữ liệu ảnh đĩa mẫu, tự động tạo mới qua create_sample_images.py...")
+        import create_sample_images
+        create_sample_images.generate_all_test_images()
+
     open_res1 = client.call_tool("open_recovery_session", {"target_path": case1_img})
     session_id1 = open_res1["session_id"]
     print(f"[OK] Case 1: Mở phiên thành công (Session ID: {session_id1[:8]}..., Sectors: {open_res1['total_sectors']})")

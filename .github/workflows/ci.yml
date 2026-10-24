@@ -45,6 +45,9 @@ jobs:
         with:
           python-version: '3.11'
 
+      - name: Generate Corrupted Forensic Test Images
+        run: python tests/create_sample_images.py
+
       - name: Run End-to-End Forensic Test Suite
         run: python tests/test_e2e_recovery.py
 
