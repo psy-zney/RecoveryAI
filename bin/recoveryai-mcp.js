@@ -39,9 +39,9 @@ function findBinary() {
 }
 
 function downloadBinary(targetPath) {
-  const url = `https://github.com/psy-zney/RecoveryAI/releases/latest/download/${binaryName}`;
-  process.stderr.write(`[RecoveryAI MCP Launcher] Native binary not found locally.\n`);
-  process.stderr.write(`[RecoveryAI MCP Launcher] Fetching prebuilt engine from GitHub Releases:\n  ${url}\n\n`);
+  const url = `https://github.com/psy-zney/resc/releases/latest/download/${binaryName}`;
+  process.stderr.write(`[resc MCP Launcher] Native binary not found locally.\n`);
+  process.stderr.write(`[resc MCP Launcher] Fetching prebuilt engine from GitHub Releases:\n  ${url}\n\n`);
 
   return new Promise((resolve, reject) => {
     function fetchUrl(currentUrl) {

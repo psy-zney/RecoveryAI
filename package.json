@@ -1,9 +1,15 @@
 {
-  "name": "recoveryai-mcp",
+  "name": "resc-mcp",
   "version": "1.0.0",
   "description": "Production-grade MCP Server & Forensic Engine for AI-assisted Disk and Filesystem Recovery",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/psy-zney/resc.git"
+  },
   "main": "bin/recoveryai-mcp.js",
   "bin": {
+    "resc": "./bin/recoveryai-mcp.js",
+    "resc-mcp": "./bin/recoveryai-mcp.js",
     "recoveryai-mcp": "./bin/recoveryai-mcp.js"
   },
   "type": "commonjs",

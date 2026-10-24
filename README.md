@@ -6,7 +6,7 @@
 [![Rust](https://img.shields.io/badge/Built_with-Rust_&_SIMD-orange?logo=rust)](https://www.rust-lang.org/)
 [![MCP](https://img.shields.io/badge/Protocol-MCP_(JSON--RPC)-blue)](https://modelcontextprotocol.io/)
 [![Safety](https://img.shields.io/badge/Physical_I/O-100%25_Read--Only-brightgreen)](#safety-architecture-in-memory-virtual-overlay)
-[![CI & Forensic Validation](https://github.com/psy-zney/RecoveryAI/actions/workflows/ci.yml/badge.svg)](https://github.com/psy-zney/RecoveryAI/actions/workflows/ci.yml)
+[![CI & Forensic Validation](https://github.com/psy-zney/resc/actions/workflows/ci.yml/badge.svg)](https://github.com/psy-zney/resc/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 
 *Turn Claude, Cursor, or Gemini into a Digital Forensics & Data Recovery Specialist — without ever writing a single byte to your damaged drive.*
@@ -79,14 +79,14 @@ Allowing an AI Agent to directly modify sectors on a damaged physical drive is d
 
 ### 1. Zero-Install via `npx` (MCP Client Configuration)
 
-Add `RecoveryAI` to your `claude_desktop_config.json` or `.cursor/mcp.json`:
+Add `resc` to your `claude_desktop_config.json` or `.cursor/mcp.json`:
 
 ```json
 {
   "mcpServers": {
-    "recoveryai": {
+    "resc": {
       "command": "npx",
-      "args": ["-y", "recoveryai-mcp", "--read-only-enforced"]
+      "args": ["-y", "github:psy-zney/resc", "--read-only-enforced"]
     }
   }
 }
@@ -97,8 +97,8 @@ Add `RecoveryAI` to your `claude_desktop_config.json` or `.cursor/mcp.json`:
 Prerequisites: **Rust 1.80+** (Cargo). For physical drive access on Windows, run your terminal/client as **Administrator**.
 
 ```bash
-git clone [https://github.com/psy-zney/RecoveryAI.git](https://github.com/psy-zney/RecoveryAI.git)
-cd RecoveryAI
+git clone https://github.com/psy-zney/resc.git
+cd resc
 
 # Optional: Download companion forensic binaries (The Sleuth Kit, PhotoRec, ddrescue)
 pwsh ./scripts/download_binaries.ps1
