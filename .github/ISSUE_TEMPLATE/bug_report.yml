@@ -1,0 +1,49 @@
+name: Bug Report
+description: Create a report to help us fix a forensic recovery or MCP server bug
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report an issue with RecoveryAI!
+  - type: input
+    id: os
+    attributes:
+      label: Operating System & Architecture
+      placeholder: "e.g., Windows 11 x86_64, Windows Server 2022"
+    validations:
+      required: true
+  - type: dropdown
+    id: ai_client
+    attributes:
+      label: AI Client
+      options:
+        - Cursor IDE
+        - Claude Desktop
+        - Claude Code CLI
+        - Google Antigravity
+        - Windsurf IDE
+        - Standalone CLI / Inspector
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: Bug Description
+      description: A clear and concise description of what the bug is.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to Reproduce
+      description: Exact MCP tool calls or CLI steps taken.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Stderr Logs / Telemetry
+      description: Please copy relevant log messages from stderr.
+      render: shell

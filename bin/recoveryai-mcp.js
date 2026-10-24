@@ -12,17 +12,16 @@
 const { spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
+const https = require('https');
 
 const isWindows = process.platform === 'win32';
 const binaryName = isWindows ? 'mcp-server.exe' : 'mcp-server';
 
 function findBinary() {
-  // 1. Check custom environment variable
   if (process.env.RECOVERYAI_MCP_BIN && fs.existsSync(process.env.RECOVERYAI_MCP_BIN)) {
     return process.env.RECOVERYAI_MCP_BIN;
   }
 
-  // 2. Candidate search locations
   const searchPaths = [
     path.resolve(__dirname, '..', 'target', 'release', binaryName),
     path.resolve(__dirname, '..', 'target', 'debug', binaryName),
@@ -39,52 +38,92 @@ function findBinary() {
   return null;
 }
 
-const binaryPath = findBinary();
+function downloadBinary(targetPath) {
+  const url = `https://github.com/psy-zney/RecoveryAI/releases/latest/download/${binaryName}`;
+  process.stderr.write(`[RecoveryAI MCP Launcher] Native binary not found locally.\n`);
+  process.stderr.write(`[RecoveryAI MCP Launcher] Fetching prebuilt engine from GitHub Releases:\n  ${url}\n\n`);
 
-if (!binaryPath) {
-  console.error('[RecoveryAI MCP Launcher] Error: Native binary not found.');
-  console.error('Looked in:');
-  console.error(`  - ${path.resolve(__dirname, '..', 'target', 'release', binaryName)}`);
-  console.error(`  - ${path.resolve(__dirname, '..', 'binaries', binaryName)}`);
-  console.error('\nPlease compile the native engine first with:');
-  console.error('  cargo build --release\n');
-  process.exit(1);
+  return new Promise((resolve, reject) => {
+    function fetchUrl(currentUrl) {
+      https.get(currentUrl, (res) => {
+        if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+          return fetchUrl(res.headers.location);
+        }
+        if (res.statusCode !== 200) {
+          return reject(new Error(`Server responded with status code ${res.statusCode}`));
+        }
+
+        const file = fs.createWriteStream(targetPath);
+        res.pipe(file);
+
+        file.on('finish', () => {
+          file.close(() => {
+            try {
+              fs.chmodSync(targetPath, 0o755);
+            } catch (_) {}
+            process.stderr.write(`[RecoveryAI MCP Launcher] Successfully installed native engine to ${targetPath}\n\n`);
+            resolve(targetPath);
+          });
+        });
+      }).on('error', (err) => {
+        fs.unlink(targetPath, () => {});
+        reject(err);
+      });
+    }
+
+    fetchUrl(url);
+  });
 }
 
-// Forward CLI arguments
-const userArgs = process.argv.slice(2);
+async function run() {
+  let binaryPath = findBinary();
 
-// Launch the native MCP server process
-const child = spawn(binaryPath, userArgs, {
-  stdio: ['pipe', 'pipe', 'inherit'],
-  env: {
-    ...process.env,
-    RUST_LOG: process.env.RUST_LOG || 'info'
+  if (!binaryPath) {
+    const installTarget = path.resolve(__dirname, binaryName);
+    try {
+      binaryPath = await downloadBinary(installTarget);
+    } catch (err) {
+      console.error('[RecoveryAI MCP Launcher] Error: Native binary not found and automatic download failed.');
+      console.error('Details:', err.message);
+      console.error('\nPlease compile the native engine manually with:');
+      console.error('  cargo build --release\n');
+      process.exit(1);
+    }
   }
-});
 
-// Clean stdio pipeline for JSON-RPC 2.0 communication
-process.stdin.pipe(child.stdin);
-child.stdout.pipe(process.stdout);
+  const userArgs = process.argv.slice(2);
 
-child.on('error', (err) => {
-  console.error(`[RecoveryAI MCP Launcher] Failed to start native process (${binaryPath}):`, err);
-  process.exit(1);
-});
+  const child = spawn(binaryPath, userArgs, {
+    stdio: ['pipe', 'pipe', 'inherit'],
+    env: {
+      ...process.env,
+      RUST_LOG: process.env.RUST_LOG || 'info'
+    }
+  });
 
-child.on('close', (code, signal) => {
-  if (signal) {
-    process.kill(process.pid, signal);
-  } else {
-    process.exit(code ?? 0);
-  }
-});
+  process.stdin.pipe(child.stdin);
+  child.stdout.pipe(process.stdout);
 
-// Graceful signal forwarding
-process.on('SIGINT', () => {
-  if (!child.killed) child.kill('SIGINT');
-});
+  child.on('error', (err) => {
+    console.error(`[RecoveryAI MCP Launcher] Failed to start native process (${binaryPath}):`, err);
+    process.exit(1);
+  });
 
-process.on('SIGTERM', () => {
-  if (!child.killed) child.kill('SIGTERM');
-});
+  child.on('close', (code, signal) => {
+    if (signal) {
+      process.kill(process.pid, signal);
+    } else {
+      process.exit(code ?? 0);
+    }
+  });
+
+  process.on('SIGINT', () => {
+    if (!child.killed) child.kill('SIGINT');
+  });
+
+  process.on('SIGTERM', () => {
+    if (!child.killed) child.kill('SIGTERM');
+  });
+}
+
+run();

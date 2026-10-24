@@ -1,0 +1,59 @@
+name: CI & Forensic Validation
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build-and-test:
+    name: Rust & Forensic Test Suite (Windows)
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Rust Toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cargo Cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Check Workspace
+        run: cargo check --workspace
+
+      - name: Run Unit Tests
+        run: cargo test --workspace
+
+      - name: Build Release Engine
+        run: cargo build --release
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Run End-to-End Forensic Test Suite
+        run: python tests/test_e2e_recovery.py
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Verify NPX / Node Bridge
+        run: |
+          node bin/recoveryai-mcp.js --help
+          node bin/recoveryai-mcp.js --version

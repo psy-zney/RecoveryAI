@@ -36,6 +36,48 @@ async fn main() -> Result<()> {
 }
 
 async fn real_main() -> Result<()> {
+    let args: Vec<String> = std::env::args().collect();
+    if args.len() > 1 {
+        match args[1].as_str() {
+            "--help" | "-h" => {
+                println!(
+r#"================================================================================
+  RecoveryAI — SIMD-Accelerated Digital Forensics & Data Recovery Engine
+================================================================================
+Usage:
+  mcp-server [OPTIONS]
+  node bin/recoveryai-mcp.js [OPTIONS]
+
+Default Mode:
+  When run without flags or with MCP client arguments, runs the JSON-RPC 2.0
+  stdio server for AI agents (Cursor, Claude, Antigravity, Windsurf).
+
+Options:
+  -h, --help           Print this help message and exit
+  -v, --version        Print version and build information
+  --list-drives        Enumerate connected physical disks and external USB drives
+  --read-only-enforced Ensure strict 100% read-only access (default)
+
+Protocol: Model Context Protocol (MCP) over JSON-RPC 2.0 stdio
+Safety:   100% Read-Only Physical Access + Copy-on-Write RAM Sandbox"#);
+                return Ok(());
+            }
+            "--version" | "-v" => {
+                println!("RecoveryAI MCP Server v1.0.0 (x86_64 SIMD AVX2/SSE4.2)");
+                return Ok(());
+            }
+            "--list-drives" => {
+                let server = handlers::DiskForensicsServer::new().await?;
+                let list = server.handle_list_physical_drives().await?;
+                println!("{}", serde_json::to_string_pretty(&list)?);
+                return Ok(());
+            }
+            _ => {
+                // Forwarded MCP client options (e.g. --read-only-enforced, --tsk-dir)
+            }
+        }
+    }
+
     // Khởi tạo logging (ghi ra stderr để không can thiệp stdio MCP)
     let filter = EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| EnvFilter::new("info"));

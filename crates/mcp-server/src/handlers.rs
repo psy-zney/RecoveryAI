@@ -248,7 +248,7 @@ impl DiskForensicsServer {
     // ====================================================================
 
     /// 0. `list_physical_drives`: Liệt kê các ổ đĩa vật lý và USB gắn ngoài
-    async fn handle_list_physical_drives(&self) -> Result<Value> {
+    pub async fn handle_list_physical_drives(&self) -> Result<Value> {
         #[cfg(target_os = "windows")]
         {
             let output = std::process::Command::new("powershell")
