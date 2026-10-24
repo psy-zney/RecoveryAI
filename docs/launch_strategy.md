@@ -78,7 +78,7 @@ Feedback, criticism, and code review from systems and forensics folks are very w
 
 ### B. Smithery.ai
 - **URL:** https://smithery.ai/
-- RecoveryAI includes `package.json` and a cross-platform launcher `bin/recoveryai-mcp.js`.
+- RecoveryAI includes `package.json` and a cross-platform launcher `bin/resc-mcp.js`.
 - Register the repo directly at: `https://smithery.ai/new` with repository `psy-zney/RecoveryAI`.
 
 ### C. mcp.so & Glama

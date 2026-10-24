@@ -30,12 +30,23 @@ Verification limits:
 - Release compilation was attempted with unwinding enabled, but Windows Application
   Control blocked a dependency build script (`memoffset`, OS error 4551). Dependency
   proc-macro loading also failed in that attempt. No security policy was changed.
-  A release build and E2E run against that release binary still need validation in
-  an environment that permits the compiler's build artifacts to execute.
-- Linux/Unix branches were not executed locally; CI includes Windows and Ubuntu.
+  Windows release validation remains separate from this local debug result.
+  Ubuntu release build and E2E validation subsequently passed on CI (see below).
+- Linux/Unix branches were not executed locally; Ubuntu CI subsequently passed
+  the workspace tests, including the Unix output guard, and release E2E tests.
 - cargo-fuzz harnesses were added and formatted, but extended libFuzzer campaigns
   were not run. The million-case check above is a deterministic regression test.
 - CancelIoEx requests cancellation; a broken driver can delay its completion.
   catch_unwind is not a subprocess sandbox. Two-file commit is recoverable but not
   one atomic power-failure transaction. Source bindings use file metadata rather
   than a full immutable image hash. See engine-capabilities.md for full limits.
+
+## GitHub Actions follow-up
+
+For commit `19cb436651b660b7616be20aeb0c4d6e0d0be484`, the
+[Ubuntu job](https://github.com/psy-zney/resc/actions/runs/40133458988/job/120989912337)
+completed successfully: workspace check, Clippy, unit tests, release build,
+16-group E2E suite against the release binary, and Node launcher verification.
+The [Windows job](https://github.com/psy-zney/resc/actions/runs/40133458988/job/120989912090)
+was still running when this Ubuntu result was recorded; no Windows CI pass is
+claimed here. The local Application Control policy was not modified.

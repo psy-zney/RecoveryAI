@@ -3,8 +3,8 @@
 ## Commands
 - **Build Native MCP Server:** `cargo build --release`
 - **Run All Tests:** `cargo test` and `python tests/test_e2e_recovery.py`
-- **Run Node Launcher / NPX:** `node bin/recoveryai-mcp.js` or `npx .`
-- **Inspect MCP Server:** `npx @modelcontextprotocol/inspector node bin/recoveryai-mcp.js`
+- **Run Node Launcher / NPX:** `node bin/resc-mcp.js` or `npx .`
+- **Inspect MCP Server:** `npx @modelcontextprotocol/inspector node bin/resc-mcp.js`
 
 ## Architecture & Code Map
 - `crates/core-io`: Win32 read-only Direct I/O (`FILE_FLAG_NO_BUFFERING | FILE_FLAG_WRITE_THROUGH`), 4KB DMA aligned memory buffers, and RAM Copy-on-Write (`VirtualDiskOverlay`).

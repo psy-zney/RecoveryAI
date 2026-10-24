@@ -13,7 +13,7 @@
 ```
 RecoveryAI/
 ├── bin/
-│   └── recoveryai-mcp.js          # Cross-platform Node.js / npx launcher bridge
+│   └── resc-mcp.js          # Cross-platform Node.js / npx launcher bridge
 ├── crates/
 │   ├── core-io/                   # Low-level 4KB DMA aligned read-only Win32 I/O & RAM Copy-on-Write overlay
 │   ├── disk-parsers/              # SIMD Aho-Corasick scanner, Shannon entropy, MBR/GPT, NTFS/FAT/exFAT
@@ -109,9 +109,9 @@ graph TD
   ```
 - **Launch MCP Server directly via Node:**
   ```bash
-  node bin/recoveryai-mcp.js
+  node bin/resc-mcp.js
   ```
 - **Test with MCP Inspector:**
   ```bash
-  npx @modelcontextprotocol/inspector node bin/recoveryai-mcp.js
+  npx @modelcontextprotocol/inspector node bin/resc-mcp.js
   ```

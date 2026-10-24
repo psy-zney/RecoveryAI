@@ -6,11 +6,11 @@
     "type": "git",
     "url": "https://github.com/psy-zney/resc.git"
   },
-  "main": "bin/recoveryai-mcp.js",
+  "main": "bin/resc-mcp.js",
   "bin": {
-    "resc": "./bin/recoveryai-mcp.js",
-    "resc-mcp": "./bin/recoveryai-mcp.js",
-    "recoveryai-mcp": "./bin/recoveryai-mcp.js"
+    "resc": "./bin/resc-mcp.js",
+    "resc-mcp": "./bin/resc-mcp.js",
+    "recoveryai-mcp": "./bin/resc-mcp.js"
   },
   "type": "commonjs",
   "files": [
@@ -22,8 +22,8 @@
     "SECURITY.md"
   ],
   "scripts": {
-    "start": "node ./bin/recoveryai-mcp.js",
-    "inspect": "npx @modelcontextprotocol/inspector node ./bin/recoveryai-mcp.js",
+    "start": "node ./bin/resc-mcp.js",
+    "inspect": "npx @modelcontextprotocol/inspector node ./bin/resc-mcp.js",
     "build:rust": "cargo build --release",
     "test:e2e": "python tests/test_e2e_recovery.py"
   },

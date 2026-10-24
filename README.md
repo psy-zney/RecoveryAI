@@ -92,6 +92,11 @@ Add `resc` to your `claude_desktop_config.json` or `.cursor/mcp.json`:
 }
 ```
 
+The npm package is named `resc-mcp`; its `resc`, `resc-mcp` and legacy
+`recoveryai-mcp` commands all use `bin/resc-mcp.js`. To select the `resc` alias
+explicitly, use `npx --package resc-mcp resc`. Bare `npx resc` resolves the npm
+package named `resc` and requires that package to be published separately.
+
 ### 2. Build from Source (Rust Workspace)
 
 Prerequisites: **Rust 1.80+** (Cargo). For physical drive access on Windows, run your terminal/client as **Administrator**.
@@ -155,6 +160,18 @@ resc/
 │   └── mcp-server/          # Tokio JSON-RPC stdio server & Async Job Manager
 └── tests/                   # Synthetic disk corruption generator & E2E verification suite
 ```
+
+## Reliability, Verification & OS Boundaries
+
+`resc` applies defensive checks when handling untrusted, corrupted disk media:
+
+* **Verified test results:** Local Windows validation passed **46 unit tests**, **16 synthetic E2E groups**, and **1,000,000 deterministic malformed-input cases** across MBR, GPT, NTFS boot-sector and FAT32 parsers with no observed panics. This regression corpus is not a completed libFuzzer campaign or proof of safety for every input.
+* **Persistent CoW overlay:** Patches for **512-byte and 4096-byte logical sectors** are synced to a session Write-Ahead Log (`.wal`) before changing RAM. Retained image sessions can replay verified records after restart when source identity and geometry match. Preserve `RESC_SESSION_ROOT`; interrupted jobs do not resume automatically.
+* **TOCTOU and overwrite protection:** Background extraction uses no-follow flags and platform handle identity checks before writes. Exclusive `.part` files, `sync_all`, metadata-first publication and rollback protect clone/mapfile and file/manifest pairs. This is a recoverable protocol, not one atomic transaction across power loss. Completed extractions include SHA-256 provenance manifests (`.manifest.json`).
+* **Kernel I/O boundaries:** Windows overlapped reads request `CancelIoEx` after a 500 ms timeout or job cancellation. Buffers remain alive until kernel completion; an unresponsive driver can still delay cancellation. There is no guaranteed hard deadline when the driver does not complete its request.
+* **Panic boundaries:** Release builds require `panic = "unwind"`; handler and worker boundaries report caught panics as errors. `catch_unwind` does not isolate memory corruption, OOM aborts or non-terminating parser execution. Safe Rust and passing tests reduce risk without eliminating these boundaries.
+
+[CI](.github/workflows/ci.yml) runs on Windows and Ubuntu. For commit [`19cb436`](https://github.com/psy-zney/resc/commit/19cb436651b660b7616be20aeb0c4d6e0d0be484), [Ubuntu CI](https://github.com/psy-zney/resc/actions/runs/40133458988/job/120989912337) passed release build, unit tests, Clippy and E2E. Local Windows release compilation was blocked by Application Control (OS error 4551); the local E2E results above used the debug binary. See the [verification report](docs/hardening-verification.md) and [implemented capabilities](docs/engine-capabilities.md) for evidence and limits.
 
 ## Disclaimer & Safety Notice
 

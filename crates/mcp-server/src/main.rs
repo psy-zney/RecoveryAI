@@ -63,7 +63,7 @@ async fn real_main() -> Result<()> {
 ================================================================================
 Usage:
   mcp-server [OPTIONS]
-  node bin/recoveryai-mcp.js [OPTIONS]
+  node bin/resc-mcp.js [OPTIONS]
 
 Default Mode:
   When run without flags or with MCP client arguments, runs the JSON-RPC 2.0

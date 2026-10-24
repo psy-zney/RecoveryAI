@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 
 /**
- * RecoveryAI MCP Server Launcher & Bridge
+ * resc MCP Server Launcher & Bridge
  * Provides cross-platform npx execution for the native Rust MCP server.
  *
  * Usage:
- *   npx recoveryai-mcp [flags]
- *   node bin/recoveryai-mcp.js [flags]
+ *   npx resc-mcp [flags]
+ *   node bin/resc-mcp.js [flags]
  */
 
 const { spawn } = require('child_process');
@@ -60,7 +60,7 @@ function run() {
   child.stdout.pipe(process.stdout);
 
   child.on('error', (err) => {
-    console.error(`[RecoveryAI MCP Launcher] Failed to start native process (${binaryPath}):`, err);
+    console.error(`[resc MCP Launcher] Failed to start native process (${binaryPath}):`, err);
     process.exit(1);
   });
 

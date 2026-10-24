@@ -12,7 +12,7 @@
     "recoveryai-npx": {
       "command": "node",
       "args": [
-        "C:/Users/admin/MyProject/RecoveryAI/bin/recoveryai-mcp.js",
+        "C:/Users/admin/MyProject/RecoveryAI/bin/resc-mcp.js",
         "--read-only-enforced"
       ],
       "env": {

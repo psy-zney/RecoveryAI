@@ -61,5 +61,5 @@ jobs:
 
       - name: Verify NPX / Node Bridge
         run: |
-          node bin/recoveryai-mcp.js --help
-          node bin/recoveryai-mcp.js --version
+          node bin/resc-mcp.js --help
+          node bin/resc-mcp.js --version

@@ -156,7 +156,7 @@ cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo test --workspace --locked
 cargo build --release --locked
 python tests/test_e2e_recovery.py
-node --check bin/recoveryai-mcp.js
+node --check bin/resc-mcp.js
 ```
 
 Use `RESC_FUZZ_CASES=1000000` for the extended deterministic malformed-parser test.
