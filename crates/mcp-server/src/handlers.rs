@@ -26,6 +26,7 @@ pub struct RecoverySession {
     pub target_path: String,
     pub overlay: Arc<Mutex<VirtualDiskOverlay<Box<dyn RawStorageReader + Send>>>>,
     pub total_sectors: u64,
+    #[allow(dead_code)]
     pub sector_size: u32,
 }
 

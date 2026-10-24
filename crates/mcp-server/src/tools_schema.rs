@@ -286,6 +286,7 @@ pub struct ScanFilesystemJournalsParams {
     pub partition_start_lba: u64,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 pub struct StartAsyncDiskJobParams {
     pub session_id: String,
@@ -323,17 +324,20 @@ pub struct ExtractRecoveredDataParams {
 }
 
 // Legacy structs
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 pub struct ScanPartitionsParams {
     pub drive_number: Option<i32>,
     pub image_path: Option<String>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 pub struct ReadBootSectorParams {
     pub partition_lba: u64,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 pub struct ApplyPatchParams {
     pub lba: u64,
@@ -342,11 +346,13 @@ pub struct ApplyPatchParams {
     pub description: String,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 pub struct RollbackPatchesParams {
     pub rollback_all: Option<bool>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 pub struct ScanSignaturesParams {
     pub start_lba: u64,
@@ -354,12 +360,14 @@ pub struct ScanSignaturesParams {
     pub file_types: Option<Vec<String>>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 pub struct AnalyzeEntropyParams {
     pub start_lba: u64,
     pub count_sectors: Option<u64>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 pub struct ExtractFileParams {
     pub partition_offset: u64,
@@ -367,6 +375,7 @@ pub struct ExtractFileParams {
     pub output_filename: String,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 pub struct RunCarvingParams {
     pub file_types: Option<Vec<String>>,

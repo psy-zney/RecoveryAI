@@ -11,6 +11,7 @@ use tokio::sync::{Mutex, oneshot};
 use uuid::Uuid;
 
 /// Trạng thái của một job
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize)]
 pub enum JobStatus {
     /// Đang chạy, kèm phần trăm hoàn thành
@@ -40,6 +41,7 @@ pub struct JobManager {
     cancel_senders: Arc<Mutex<HashMap<String, oneshot::Sender<()>>>>,
 }
 
+#[allow(dead_code)]
 impl JobManager {
     pub fn new() -> Self {
         Self {
