@@ -70,10 +70,9 @@ pub struct Fat32BootSector {
 impl Fat32BootSector {
     /// Kiểm tra xem đây có phải FAT32 hợp lệ không
     pub fn is_valid(&self) -> bool {
-        self.bytes_per_sector >= 512
-            && self.bytes_per_sector <= 4096
-            && self.sectors_per_cluster > 0
-            && self.num_fats > 0
+        matches!(self.bytes_per_sector, 512 | 1024 | 2048 | 4096)
+            && self.sectors_per_cluster.is_power_of_two()
+            && (1..=2).contains(&self.num_fats)
             && self.fat_size_32 > 0
             && self.root_entry_count == 0 // FAT32 đặt root entries = 0
     }
@@ -88,7 +87,7 @@ impl Fat32BootSector {
         if data.len() < std::mem::size_of::<Self>() {
             return None;
         }
-        Self::ref_from_bytes(&data[..std::mem::size_of::<Self>()]).ok()
+        Self::ref_from_bytes(data.get(..std::mem::size_of::<Self>())?).ok()
     }
 
     /// Tính tổng dung lượng volume (bytes)
@@ -103,7 +102,10 @@ impl Fat32BootSector {
 
     /// LBA bắt đầu vùng data (sau reserved + FAT tables)
     pub fn data_start_lba(&self) -> u32 {
-        self.reserved_sectors as u32 + self.num_fats as u32 * self.fat_size_32
+        (self.num_fats as u32)
+            .checked_mul(self.fat_size_32)
+            .and_then(|n| n.checked_add(self.reserved_sectors as u32))
+            .unwrap_or(u32::MAX)
     }
 
     /// Volume label dạng string (trimmed)
@@ -171,31 +173,30 @@ pub fn analyze_fat32(data: &[u8]) -> Fat32Analysis {
     }
 
     if bpb.backup_boot_sector != 6 {
-        anomalies.push(format!(
-            "Backup Boot Sector at sector {} (expected 6)",
-            { bpb.backup_boot_sector }
-        ));
+        anomalies.push(format!("Backup Boot Sector at sector {} (expected 6)", {
+            bpb.backup_boot_sector
+        }));
     }
 
     if bpb.num_fats != 2 {
-        anomalies.push(format!(
-            "FAT count is {} (expected 2)",
-            { bpb.num_fats }
-        ));
+        anomalies.push(format!("FAT count is {} (expected 2)", { bpb.num_fats }));
     }
 
     if bpb.root_cluster != 2 {
-        anomalies.push(format!(
-            "Root cluster is {} (expected 2)",
-            { bpb.root_cluster }
-        ));
+        anomalies.push(format!("Root cluster is {} (expected 2)", {
+            bpb.root_cluster
+        }));
     }
 
     let volume_size_gb =
         bpb.total_sectors_32 as f64 * bpb.bytes_per_sector as f64 / (1024.0 * 1024.0 * 1024.0);
 
     Fat32Analysis {
-        valid: bpb.is_valid(),
+        valid: bpb.is_valid()
+            && data.len() >= 512
+            && data.get(510..512) == Some([0x55, 0xaa].as_slice())
+            && bpb.data_start_lba() < bpb.total_sectors_32
+            && bpb.is_fat32_fs_type(),
         oem_name: String::from_utf8_lossy(&bpb.oem_name).trim().to_string(),
         fs_type: String::from_utf8_lossy(&bpb.fs_type).trim().to_string(),
         bytes_per_sector: bpb.bytes_per_sector,

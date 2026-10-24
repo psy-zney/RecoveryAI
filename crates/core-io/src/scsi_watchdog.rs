@@ -1,8 +1,5 @@
-//! SCSI Watchdog - Timeout 500ms chống treo I/O khi gặp Bad Sector.
-//!
-//! Khi đọc sector trên ổ đĩa bị hư, Windows có thể treo vô thời hạn.
-//! Module này wrap việc đọc sector trong một timeout cứng, tự động
-//! đánh dấu sector lỗi vào `BadSectorMap` nếu quá thời gian.
+//! Read-latency monitor and bad-sector bookkeeping.
+//! This does not cancel pending kernel I/O; hard I/O cancellation is NotImplemented.
 
 use crate::bad_sector_map::BadSectorMap;
 use crate::physical_drive::PhysicalDrive;
@@ -49,10 +46,10 @@ impl ScsiWatchdog {
     ) -> io::Result<Duration> {
         // Kiểm tra xem sector này đã biết là lỗi chưa
         if bad_sector_map.is_bad(lba) {
-            return Err(io::Error::new(
-                io::ErrorKind::Other,
-                format!("LBA {} is known bad sector, skipping", lba),
-            ));
+            return Err(io::Error::other(format!(
+                "LBA {} is known bad sector, skipping",
+                lba
+            )));
         }
 
         let start = Instant::now();
@@ -69,6 +66,7 @@ impl ScsiWatchdog {
                         "Sector read exceeded timeout, marking as slow"
                     );
                     bad_sector_map.mark_slow(lba, elapsed);
+                    return Err(io::Error::new(io::ErrorKind::TimedOut,"Read completed after latency threshold; pending kernel I/O cancellation is NotImplemented"));
                 }
                 Ok(elapsed)
             }
@@ -95,7 +93,20 @@ impl ScsiWatchdog {
         sector_size: usize,
         buf: &mut [u8],
         bad_sector_map: &mut BadSectorMap,
-    ) -> usize {
+    ) -> io::Result<usize> {
+        if sector_size != drive.sector_size as usize
+            || count
+                .checked_mul(sector_size)
+                .is_none_or(|bytes| bytes > buf.len())
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "Read range exceeds buffer or mismatches sector geometry",
+            ));
+        }
+        start_lba
+            .checked_add(count as u64)
+            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "Read range overflow"))?;
         let mut success_count = 0;
 
         for i in 0..count {
@@ -112,7 +123,7 @@ impl ScsiWatchdog {
             }
         }
 
-        success_count
+        Ok(success_count)
     }
 }
 

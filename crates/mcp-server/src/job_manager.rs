@@ -1,154 +1,222 @@
-//! Async Job Manager — quản lý tác vụ quét đĩa chạy ngầm.
-//!
-//! Khi AI gọi tool quét đĩa (scan signatures, carving...),
-//! tác vụ được đẩy vào background job queue để tránh MCP timeout.
-//! AI kiểm tra tiến trình bằng job_id.
-
+//! Bounded job registry; worker threads never block the async runtime on I/O.
 use serde::Serialize;
+use serde_json::Value;
 use std::collections::HashMap;
-use std::sync::Arc;
-use tokio::sync::{Mutex, oneshot};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc, Mutex,
+};
 use uuid::Uuid;
 
-/// Trạng thái của một job
-#[allow(dead_code)]
-#[derive(Debug, Clone, Serialize)]
-pub enum JobStatus {
-    /// Đang chạy, kèm phần trăm hoàn thành
-    Running { progress_percent: f64, message: String },
-    /// Hoàn thành thành công
-    Completed { result: serde_json::Value },
-    /// Thất bại
-    Failed { error: String },
-    /// Đã bị huỷ
-    Cancelled,
+#[derive(Debug, Clone, Copy)]
+pub enum JobType {
+    DataExtraction,
+}
+impl JobType {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::DataExtraction => "DATA_EXTRACTION",
+        }
+    }
 }
 
-/// Thông tin một background job
+#[derive(Debug, Clone, Serialize)]
+pub enum JobStatus {
+    Running {
+        progress_percent: f64,
+        message: String,
+        sectors_processed: u64,
+        items_found: u64,
+        bytes_written: u64,
+    },
+    Completed {
+        result: Value,
+    },
+    Failed {
+        error: String,
+    },
+    Cancelled,
+}
 #[derive(Debug, Clone, Serialize)]
 pub struct JobInfo {
     pub job_id: String,
     pub job_type: String,
     pub status: JobStatus,
-    pub created_at: String,
-    pub updated_at: String,
 }
-
-/// Quản lý các background job
+struct Job {
+    info: JobInfo,
+    cancel: Arc<AtomicBool>,
+    hits_path: Option<std::path::PathBuf>,
+}
+#[derive(Default)]
 pub struct JobManager {
-    jobs: Arc<Mutex<HashMap<String, JobInfo>>>,
-    /// Kênh gửi tín hiệu huỷ job
-    cancel_senders: Arc<Mutex<HashMap<String, oneshot::Sender<()>>>>,
+    jobs: Mutex<HashMap<String, Job>>,
 }
-
-#[allow(dead_code)]
 impl JobManager {
     pub fn new() -> Self {
-        Self {
-            jobs: Arc::new(Mutex::new(HashMap::new())),
-            cancel_senders: Arc::new(Mutex::new(HashMap::new())),
-        }
+        Self::default()
     }
-
-    /// Tạo job mới và trả về job_id.
-    pub async fn create_job(&self, job_type: &str) -> (String, oneshot::Receiver<()>) {
-        let job_id = Uuid::new_v4().to_string();
-        let now = chrono_now();
-
-        let (cancel_tx, cancel_rx) = oneshot::channel();
-
-        let info = JobInfo {
-            job_id: job_id.clone(),
-            job_type: job_type.to_string(),
-            status: JobStatus::Running {
-                progress_percent: 0.0,
-                message: "Starting...".into(),
-            },
-            created_at: now.clone(),
-            updated_at: now,
-        };
-
-        self.jobs.lock().await.insert(job_id.clone(), info);
-        self.cancel_senders
+    pub fn create_job(&self, kind: &str) -> anyhow::Result<(String, Arc<AtomicBool>)> {
+        let mut jobs = self
+            .jobs
             .lock()
-            .await
-            .insert(job_id.clone(), cancel_tx);
-
-        (job_id, cancel_rx)
-    }
-
-    /// Cập nhật tiến trình job.
-    pub async fn update_progress(&self, job_id: &str, percent: f64, message: &str) {
-        if let Some(job) = self.jobs.lock().await.get_mut(job_id) {
-            job.status = JobStatus::Running {
-                progress_percent: percent,
-                message: message.to_string(),
-            };
-            job.updated_at = chrono_now();
-        }
-    }
-
-    /// Đánh dấu job hoàn thành.
-    pub async fn complete_job(&self, job_id: &str, result: serde_json::Value) {
-        if let Some(job) = self.jobs.lock().await.get_mut(job_id) {
-            job.status = JobStatus::Completed { result };
-            job.updated_at = chrono_now();
-        }
-        self.cancel_senders.lock().await.remove(job_id);
-    }
-
-    /// Đánh dấu job thất bại.
-    pub async fn fail_job(&self, job_id: &str, error: &str) {
-        if let Some(job) = self.jobs.lock().await.get_mut(job_id) {
-            job.status = JobStatus::Failed {
-                error: error.to_string(),
-            };
-            job.updated_at = chrono_now();
-        }
-        self.cancel_senders.lock().await.remove(job_id);
-    }
-
-    /// Huỷ job đang chạy.
-    pub async fn cancel_job(&self, job_id: &str) -> bool {
-        if let Some(sender) = self.cancel_senders.lock().await.remove(job_id) {
-            let _ = sender.send(());
-            if let Some(job) = self.jobs.lock().await.get_mut(job_id) {
-                job.status = JobStatus::Cancelled;
-                job.updated_at = chrono_now();
+            .map_err(|_| anyhow::anyhow!("Job registry poisoned"))?;
+        let running = jobs
+            .values()
+            .filter(|j| matches!(j.info.status, JobStatus::Running { .. }))
+            .count();
+        anyhow::ensure!(
+            running < 4,
+            "At most four background jobs may run concurrently"
+        );
+        if jobs.len() >= 128 {
+            if let Some(key) = jobs
+                .iter()
+                .find(|(_, j)| !matches!(j.info.status, JobStatus::Running { .. }))
+                .map(|(k, _)| k.clone())
+            {
+                jobs.remove(&key);
             }
-            true
-        } else {
-            false
+        }
+        let id = Uuid::new_v4().to_string();
+        let cancel = Arc::new(AtomicBool::new(false));
+        jobs.insert(
+            id.clone(),
+            Job {
+                info: JobInfo {
+                    job_id: id.clone(),
+                    job_type: kind.into(),
+                    status: JobStatus::Running {
+                        progress_percent: 0.0,
+                        message: "Queued".into(),
+                        sectors_processed: 0,
+                        items_found: 0,
+                        bytes_written: 0,
+                    },
+                },
+                cancel: cancel.clone(),
+                hits_path: None,
+            },
+        );
+        Ok((id, cancel))
+    }
+    pub fn set_hits_path(&self, id: &str, path: std::path::PathBuf) -> anyhow::Result<()> {
+        self.jobs
+            .lock()
+            .map_err(|_| anyhow::anyhow!("Job registry poisoned"))?
+            .get_mut(id)
+            .ok_or_else(|| anyhow::anyhow!("Job not found"))?
+            .hits_path = Some(path);
+        Ok(())
+    }
+    pub fn hits_path(&self, id: &str) -> anyhow::Result<std::path::PathBuf> {
+        self.jobs
+            .lock()
+            .map_err(|_| anyhow::anyhow!("Job registry poisoned"))?
+            .get(id)
+            .and_then(|job| job.hits_path.clone())
+            .ok_or_else(|| anyhow::anyhow!("Job has no stored hit list"))
+    }
+    pub fn progress(&self, id: &str, done: u64, total: u64, found: u64) {
+        if let Ok(mut jobs) = self.jobs.lock() {
+            if let Some(job) = jobs.get_mut(id) {
+                if matches!(job.info.status, JobStatus::Running { .. }) {
+                    job.info.status = JobStatus::Running {
+                        progress_percent: if total == 0 {
+                            0.0
+                        } else {
+                            100.0 * done as f64 / total as f64
+                        },
+                        message: "Processing".into(),
+                        sectors_processed: done,
+                        items_found: found,
+                        bytes_written: 0,
+                    };
+                }
+            }
         }
     }
-
-    /// Lấy thông tin một job.
-    pub async fn get_job(&self, job_id: &str) -> Option<JobInfo> {
-        self.jobs.lock().await.get(job_id).cloned()
+    pub fn extraction_progress(&self, id: &str, bytes: u64, total: Option<u64>) {
+        if let Ok(mut jobs) = self.jobs.lock() {
+            if let Some(job) = jobs.get_mut(id) {
+                if matches!(job.info.status, JobStatus::Running { .. }) {
+                    job.info.status = JobStatus::Running {
+                        progress_percent: total
+                            .filter(|n| *n > 0)
+                            .map_or(0.0, |n| 100.0 * bytes as f64 / n as f64),
+                        message: "Extracting".into(),
+                        sectors_processed: 0,
+                        items_found: 0,
+                        bytes_written: bytes,
+                    };
+                }
+            }
+        }
     }
-
-    /// Liệt kê tất cả jobs.
-    pub async fn list_jobs(&self) -> Vec<JobInfo> {
-        self.jobs.lock().await.values().cloned().collect()
+    pub fn finish(&self, id: &str, result: anyhow::Result<Value>) {
+        if let Ok(mut jobs) = self.jobs.lock() {
+            if let Some(job) = jobs.get_mut(id) {
+                // Committed output wins cancellation racing with the final commit.
+                job.info.status = match result {
+                    Ok(result) => JobStatus::Completed { result },
+                    Err(_) if job.cancel.load(Ordering::Acquire) => JobStatus::Cancelled,
+                    Err(error) => JobStatus::Failed {
+                        error: error.to_string().chars().take(1024).collect(),
+                    },
+                };
+            }
+        }
     }
-
-    /// Lấy Arc clone để chia sẻ giữa các task.
-    pub fn jobs_ref(&self) -> Arc<Mutex<HashMap<String, JobInfo>>> {
-        Arc::clone(&self.jobs)
+    pub fn cancel_job(&self, id: &str) -> anyhow::Result<()> {
+        let jobs = self
+            .jobs
+            .lock()
+            .map_err(|_| anyhow::anyhow!("Job registry poisoned"))?;
+        let job = jobs
+            .get(id)
+            .ok_or_else(|| anyhow::anyhow!("Job not found"))?;
+        anyhow::ensure!(
+            matches!(job.info.status, JobStatus::Running { .. }),
+            "Job has already finished"
+        );
+        job.cancel.store(true, Ordering::Release);
+        Ok(())
+    }
+    pub fn get_job(&self, id: &str) -> anyhow::Result<JobInfo> {
+        self.jobs
+            .lock()
+            .map_err(|_| anyhow::anyhow!("Job registry poisoned"))?
+            .get(id)
+            .map(|j| j.info.clone())
+            .ok_or_else(|| anyhow::anyhow!("Job not found"))
     }
 }
 
-impl Default for JobManager {
-    fn default() -> Self {
-        Self::new()
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn cancellation_racing_with_committed_success_does_not_hide_output() {
+        let jobs = JobManager::new();
+        let (id, _) = jobs.create_job("clone").unwrap();
+        jobs.cancel_job(&id).unwrap();
+        jobs.finish(&id, Ok(serde_json::json!({"status":"cloned"})));
+        assert!(matches!(
+            jobs.get_job(&id).unwrap().status,
+            JobStatus::Completed { .. }
+        ));
     }
-}
-
-/// Lấy timestamp hiện tại dạng ISO 8601 (đơn giản, không cần chrono crate)
-fn chrono_now() -> String {
-    use std::time::SystemTime;
-    let duration = SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .unwrap_or_default();
-    format!("{}s since epoch", duration.as_secs())
+    #[test]
+    fn cancellation_is_acknowledged_by_worker_and_terminal_progress_is_immutable() {
+        let jobs = JobManager::new();
+        let (id, flag) = jobs.create_job("scan").unwrap();
+        jobs.cancel_job(&id).unwrap();
+        assert!(flag.load(Ordering::Acquire));
+        jobs.finish(&id, Err(anyhow::anyhow!("Job cancelled")));
+        jobs.progress(&id, 1, 2, 0);
+        assert!(matches!(
+            jobs.get_job(&id).unwrap().status,
+            JobStatus::Cancelled
+        ));
+    }
 }

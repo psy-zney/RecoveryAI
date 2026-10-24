@@ -7,7 +7,6 @@
 
 use serde::Serialize;
 use std::path::PathBuf;
-use tokio::process::Command;
 
 const DEFAULT_DDRESCUE_BIN: &str = "binaries/ddrescue";
 
@@ -82,130 +81,33 @@ impl DdrescueWrapper {
     /// nhanh nhất có thể các vùng tốt trước.
     pub async fn run_fast_rescue(
         &self,
-        config: &DdrescueConfig,
+        _config: &DdrescueConfig,
     ) -> anyhow::Result<DdrescueResult> {
-        let mut args = vec![
-            "-n".to_string(), // No-split: chỉ chạy pass 1, bỏ qua slow areas
-            "-v".to_string(), // Verbose
-        ];
-
-        if let Some(bs) = config.block_size {
-            args.push("-b".into());
-            args.push(bs.to_string());
-        }
-
-        if let Some(pos) = config.input_position {
-            args.push("-i".into());
-            args.push(pos.to_string());
-        }
-
-        if let Some(size) = config.size {
-            args.push("-s".into());
-            args.push(size.to_string());
-        }
-
-        if let Some(timeout) = config.timeout {
-            args.push("-T".into());
-            args.push(format!("{}s", timeout));
-        }
-
-        args.push(config.input_path.clone());
-        args.push(config.output_path.clone());
-        args.push(config.mapfile_path.clone());
-
-        self.run_ddrescue(&args, &config).await
+        anyhow::bail!("NotImplemented: legacy subprocess adapter is disabled; use the native RAM-overlay MCP engine")
     }
 
     /// Chạy ddrescue pass 2+ (retry — thử lại các vùng lỗi với block nhỏ hơn).
     pub async fn run_retry_rescue(
         &self,
-        config: &DdrescueConfig,
+        _config: &DdrescueConfig,
     ) -> anyhow::Result<DdrescueResult> {
-        let mut args = vec![
-            "-r".to_string(),
-            config.max_retries.unwrap_or(3).to_string(),
-            "-v".to_string(),
-        ];
-
-        args.push(config.input_path.clone());
-        args.push(config.output_path.clone());
-        args.push(config.mapfile_path.clone());
-
-        self.run_ddrescue(&args, &config).await
+        anyhow::bail!("NotImplemented: legacy subprocess adapter is disabled; use the native RAM-overlay MCP engine")
     }
 
     /// Parse mapfile để lấy trạng thái hiện tại.
     pub async fn parse_mapfile(&self, mapfile_path: &str) -> anyhow::Result<DdrescueMapSummary> {
-        let content = tokio::fs::read_to_string(mapfile_path).await?;
-
-        let mut rescued = 0u64;
-        let mut errors = 0u64;
-        let mut non_tried = 0u64;
-
-        for line in content.lines() {
-            let line = line.trim();
-            if line.starts_with('#') || line.is_empty() {
-                continue;
-            }
-
-            let parts: Vec<&str> = line.split_whitespace().collect();
-            if parts.len() >= 3 {
-                if let (Ok(_pos), Ok(size)) = (
-                    parse_hex_or_dec(parts[0]),
-                    parse_hex_or_dec(parts[1]),
-                ) {
-                    match parts[2] {
-                        "+" => rescued += size,     // Finished
-                        "-" => errors += size,      // Bad sector
-                        "?" => non_tried += size,   // Not yet tried
-                        "/" => non_tried += size,    // Non-trimmed
-                        "*" => errors += size,      // Non-scraped
-                        _ => {}
-                    }
-                }
-            }
-        }
-
-        let total = rescued + errors + non_tried;
-        let percent = if total > 0 {
-            (rescued as f64 / total as f64) * 100.0
-        } else {
-            0.0
-        };
-
-        Ok(DdrescueMapSummary {
-            total_bytes: total,
-            rescued_bytes: rescued,
-            error_bytes: errors,
-            non_tried_bytes: non_tried,
-            percent_rescued: percent,
-        })
-    }
-
-    async fn run_ddrescue(
-        &self,
-        args: &[String],
-        config: &DdrescueConfig,
-    ) -> anyhow::Result<DdrescueResult> {
-        tracing::info!(args = ?args, "Running ddrescue");
-
-        let output = Command::new(&self.bin_path)
-            .args(args)
-            .output()
+        use tokio::io::AsyncReadExt;
+        let mut content = String::new();
+        tokio::fs::File::open(mapfile_path)
+            .await?
+            .take(16 * 1024 * 1024 + 1)
+            .read_to_string(&mut content)
             .await?;
-
-        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-
-        Ok(DdrescueResult {
-            command: format!("ddrescue {}", args.join(" ")),
-            exit_code: output.status.code().unwrap_or(-1),
-            stdout,
-            stderr,
-            success: output.status.success(),
-            output_path: config.output_path.clone(),
-            mapfile_path: config.mapfile_path.clone(),
-        })
+        anyhow::ensure!(
+            content.len() <= 16 * 1024 * 1024,
+            "Mapfile exceeds 16 MiB parsing budget"
+        );
+        parse_map_summary(&content)
     }
 }
 
@@ -238,10 +140,85 @@ pub struct DdrescueMapSummary {
 }
 
 /// Parse hex (0x...) hoặc decimal string
+fn parse_map_summary(content: &str) -> anyhow::Result<DdrescueMapSummary> {
+    let mut rescued = 0u64;
+    let mut errors = 0u64;
+    let mut pending = 0u64;
+    let mut previous_end = None;
+    for line in content
+        .lines()
+        .map(str::trim)
+        .filter(|s| !s.is_empty() && !s.starts_with('#'))
+    {
+        let fields: Vec<_> = line.split_whitespace().collect();
+        if (2..=3).contains(&fields.len()) && matches!(fields[1], "?" | "+" | "-" | "/" | "*") {
+            parse_hex_or_dec(fields[0])?;
+            if fields.len() == 3 {
+                fields[2].parse::<u32>()?;
+            }
+            continue;
+        }
+        anyhow::ensure!(fields.len() == 3, "Malformed ddrescue mapfile row");
+        let position = parse_hex_or_dec(fields[0])?;
+        let size = parse_hex_or_dec(fields[1])?;
+        let end = position
+            .checked_add(size)
+            .ok_or_else(|| anyhow::anyhow!("Mapfile position overflow"))?;
+        anyhow::ensure!(
+            size > 0 && previous_end.is_none_or(|previous| position >= previous),
+            "Overlapping or empty mapfile range"
+        );
+        previous_end = Some(end);
+        let counter = match fields[2] {
+            "+" => &mut rescued,
+            "-" => &mut errors,
+            "?" | "/" | "*" => &mut pending,
+            _ => anyhow::bail!("Invalid mapfile sector status"),
+        };
+        *counter = counter
+            .checked_add(size)
+            .ok_or_else(|| anyhow::anyhow!("Mapfile size overflow"))?;
+    }
+    anyhow::ensure!(previous_end.is_some(), "Mapfile has no data ranges");
+    let total = rescued
+        .checked_add(errors)
+        .and_then(|n| n.checked_add(pending))
+        .ok_or_else(|| anyhow::anyhow!("Mapfile total overflow"))?;
+    Ok(DdrescueMapSummary {
+        total_bytes: total,
+        rescued_bytes: rescued,
+        error_bytes: errors,
+        non_tried_bytes: pending,
+        percent_rescued: 100.0 * rescued as f64 / total as f64,
+    })
+}
+
 fn parse_hex_or_dec(s: &str) -> Result<u64, std::num::ParseIntError> {
     if s.starts_with("0x") || s.starts_with("0X") {
         u64::from_str_radix(&s[2..], 16)
     } else {
         s.parse()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn mapfile_reports_verified_counts_and_rejects_malformed_ranges() {
+        let report =
+            parse_map_summary("# header\n0x0 ? 1\n0x0 0x200 +\n0x200 0x200 -\n0x400 0x200 *\n")
+                .unwrap();
+        assert_eq!(
+            (
+                report.rescued_bytes,
+                report.error_bytes,
+                report.non_tried_bytes
+            ),
+            (512, 512, 512)
+        );
+        assert!(parse_map_summary("0 0x400 +\n0x200 0x400 -").is_err());
+        assert!(parse_map_summary("0xffffffffffffffff 2 +").is_err());
+        assert!(parse_map_summary("garbage").is_err());
     }
 }

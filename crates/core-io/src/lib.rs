@@ -11,6 +11,7 @@
 
 pub mod aligned_buffer;
 pub mod bad_sector_map;
+mod overlay_wal;
 pub mod physical_drive;
 pub mod scsi_watchdog;
 pub mod virtual_overlay;

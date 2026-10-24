@@ -33,22 +33,33 @@ impl AlignedBuffer {
     /// Kích thước thực tế sẽ được làm tròn lên bội số 4096 gần nhất.
     /// Buffer được khởi tạo với giá trị 0 (zeroed).
     ///
-    /// # Panics
-    /// Panic nếu hệ thống không đủ RAM để cấp phát.
-    pub fn new(size: usize) -> Self {
+    /// Returns InvalidInput on size overflow and OutOfMemory on allocation failure.
+    pub fn new(size: usize) -> std::io::Result<Self> {
         // Làm tròn kích thước lên bội số gần nhất của 4096 bytes
-        let aligned_size = (size + PAGE_ALIGNMENT - 1) & !(PAGE_ALIGNMENT - 1);
-        let layout = Layout::from_size_align(aligned_size, PAGE_ALIGNMENT)
-            .expect("Invalid memory alignment layout");
+        let aligned_size = size.max(1).checked_add(PAGE_ALIGNMENT - 1).ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "Aligned buffer size overflow",
+            )
+        })? & !(PAGE_ALIGNMENT - 1);
+        let layout = Layout::from_size_align(aligned_size, PAGE_ALIGNMENT).map_err(|_| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "Invalid memory alignment layout",
+            )
+        })?;
         let ptr = unsafe { alloc_zeroed(layout) };
         if ptr.is_null() {
-            std::alloc::handle_alloc_error(layout);
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::OutOfMemory,
+                "Aligned buffer allocation failed",
+            ));
         }
-        Self {
+        Ok(Self {
             ptr,
             layout,
             len: aligned_size,
-        }
+        })
     }
 
     /// Trả về kích thước thực tế đã cấp phát (đã căn chỉnh).
@@ -91,33 +102,38 @@ mod tests {
     use super::*;
 
     #[test]
+    fn overflowing_allocation_is_an_error() {
+        assert!(AlignedBuffer::new(usize::MAX).is_err());
+        assert!(AlignedBuffer::new(0).unwrap().capacity() >= 1);
+    }
+    #[test]
     fn test_alignment() {
-        let buf = AlignedBuffer::new(1);
+        let buf = AlignedBuffer::new(1).unwrap();
         assert_eq!(buf.capacity(), PAGE_ALIGNMENT);
         assert_eq!(buf.as_ptr() as usize % PAGE_ALIGNMENT, 0);
     }
 
     #[test]
     fn test_exact_page_size() {
-        let buf = AlignedBuffer::new(4096);
+        let buf = AlignedBuffer::new(4096).unwrap();
         assert_eq!(buf.capacity(), 4096);
     }
 
     #[test]
     fn test_round_up() {
-        let buf = AlignedBuffer::new(5000);
+        let buf = AlignedBuffer::new(5000).unwrap();
         assert_eq!(buf.capacity(), 8192); // 2 * 4096
     }
 
     #[test]
     fn test_zeroed() {
-        let buf = AlignedBuffer::new(4096);
+        let buf = AlignedBuffer::new(4096).unwrap();
         assert!(buf.iter().all(|&b| b == 0));
     }
 
     #[test]
     fn test_write_and_read() {
-        let mut buf = AlignedBuffer::new(512);
+        let mut buf = AlignedBuffer::new(512).unwrap();
         buf[0] = 0xEB;
         buf[1] = 0x52;
         buf[510] = 0x55;

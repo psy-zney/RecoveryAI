@@ -6,8 +6,6 @@ edition.workspace = true
 [dependencies]
 core-io = { path = "../core-io" }
 disk-parsers = { path = "../disk-parsers" }
-external-bridges = { path = "../external-bridges" }
-rmcp = { workspace = true }
 tokio = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -16,3 +14,12 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 anyhow = { workspace = true }
 uuid = { workspace = true }
+ntfs = "0.4.0"
+fatfs = { version = "0.3.6", default-features = false, features = ["std", "alloc"] }
+crc32fast = "1.4"
+sha2 = "0.10"
+futures-util = "0.3"
+windows-sys = { workspace = true }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"

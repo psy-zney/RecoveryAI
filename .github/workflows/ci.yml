@@ -8,8 +8,11 @@ on:
 
 jobs:
   build-and-test:
-    name: Rust & Forensic Test Suite (Windows)
-    runs-on: windows-latest
+    name: Rust & Forensic Test Suite (${{ matrix.os }})
+    strategy:
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
 
     steps:
       - name: Checkout Repository
@@ -32,21 +35,21 @@ jobs:
             ${{ runner.os }}-cargo-
 
       - name: Check Workspace
-        run: cargo check --workspace
+        run: cargo check --workspace --locked
+
+      - name: Lint Rust
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
       - name: Run Unit Tests
-        run: cargo test --workspace
+        run: cargo test --workspace --locked
 
       - name: Build Release Engine
-        run: cargo build --release
+        run: cargo build --release --locked
 
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-
-      - name: Generate Corrupted Forensic Test Images
-        run: python tests/create_sample_images.py
 
       - name: Run End-to-End Forensic Test Suite
         run: python tests/test_e2e_recovery.py

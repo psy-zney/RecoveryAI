@@ -8,7 +8,6 @@
 
 use serde::Serialize;
 use std::path::PathBuf;
-use tokio::process::Command;
 
 /// Đường dẫn mặc định tới các binary TSK
 const DEFAULT_TSK_DIR: &str = "binaries/tsk";
@@ -73,12 +72,13 @@ impl TskWrapper {
     /// ```text
     /// fsstat -o <partition_offset> <image_path>
     /// ```
-    pub async fn fsstat(&self, image_path: &str, partition_offset: u64) -> anyhow::Result<TskResult> {
-        self.run_tsk(
-            "fsstat",
-            &["-o", &partition_offset.to_string(), image_path],
-        )
-        .await
+    pub async fn fsstat(
+        &self,
+        image_path: &str,
+        partition_offset: u64,
+    ) -> anyhow::Result<TskResult> {
+        self.run_tsk("fsstat", &["-o", &partition_offset.to_string(), image_path])
+            .await
     }
 
     /// Chạy `fls` — duyệt cây thư mục (bao gồm file đã xóa).
@@ -115,62 +115,17 @@ impl TskWrapper {
     /// Output được ghi vào `output_path`.
     pub async fn icat(
         &self,
-        image_path: &str,
-        partition_offset: u64,
-        inode: u64,
-        output_path: &str,
+        _image_path: &str,
+        _partition_offset: u64,
+        _inode: u64,
+        _output_path: &str,
     ) -> anyhow::Result<TskResult> {
-        let offset_str = partition_offset.to_string();
-        let inode_str = inode.to_string();
-        let args = vec!["-o", &offset_str, image_path, &inode_str];
-
-        // icat ghi stdout ra file
-        let bin = self.bin_path("icat");
-        let output = Command::new(&bin)
-            .args(&args)
-            .output()
-            .await?;
-
-        // Ghi stdout vào file
-        if output.status.success() {
-            tokio::fs::write(output_path, &output.stdout).await?;
-        }
-
-        Ok(TskResult {
-            command: format!("icat {}", args.join(" ")),
-            exit_code: output.status.code().unwrap_or(-1),
-            stdout: format!("Written {} bytes to {}", output.stdout.len(), output_path),
-            stderr: String::from_utf8_lossy(&output.stderr).to_string(),
-            success: output.status.success(),
-        })
+        anyhow::bail!("NotImplemented: legacy subprocess adapter is disabled; use the native RAM-overlay MCP engine")
     }
 
     /// Chạy một lệnh TSK bất kỳ.
-    async fn run_tsk(&self, tool: &str, args: &[&str]) -> anyhow::Result<TskResult> {
-        let bin = self.bin_path(tool);
-
-        tracing::info!(tool = tool, args = ?args, "Running TSK command");
-
-        let output = Command::new(&bin).args(args).output().await?;
-
-        let result = TskResult {
-            command: format!("{} {}", tool, args.join(" ")),
-            exit_code: output.status.code().unwrap_or(-1),
-            stdout: String::from_utf8_lossy(&output.stdout).to_string(),
-            stderr: String::from_utf8_lossy(&output.stderr).to_string(),
-            success: output.status.success(),
-        };
-
-        if !result.success {
-            tracing::warn!(
-                tool = tool,
-                exit_code = result.exit_code,
-                stderr = %result.stderr,
-                "TSK command failed"
-            );
-        }
-
-        Ok(result)
+    async fn run_tsk(&self, _tool: &str, _args: &[&str]) -> anyhow::Result<TskResult> {
+        anyhow::bail!("NotImplemented: legacy subprocess adapter is disabled; use the native RAM-overlay MCP engine")
     }
 }
 

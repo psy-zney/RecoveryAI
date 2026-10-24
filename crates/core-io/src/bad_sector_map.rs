@@ -66,15 +66,14 @@ impl BadSectorMap {
             read_duration: duration,
             slow_count: 0,
         });
-        match entry {
-            SectorStatus::Slow {
-                read_duration,
-                slow_count,
-            } => {
-                *read_duration = duration;
-                *slow_count += 1;
-            }
-            _ => {} // Không hạ cấp từ Bad xuống Slow
+        // Never downgrade a Bad sector to Slow.
+        if let SectorStatus::Slow {
+            read_duration,
+            slow_count,
+        } = entry
+        {
+            *read_duration = duration;
+            *slow_count += 1;
         }
     }
 

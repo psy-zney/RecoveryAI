@@ -1,7 +1,7 @@
 {
   "name": "resc-mcp",
   "version": "1.0.0",
-  "description": "Production-grade MCP Server & Forensic Engine for AI-assisted Disk and Filesystem Recovery",
+  "description": "Read-only disk forensics MCP engine with native NTFS/FAT RAM-overlay validation",
   "repository": {
     "type": "git",
     "url": "https://github.com/psy-zney/resc.git"
@@ -17,7 +17,9 @@
     "bin/",
     "README.md",
     "AGENTS.md",
-    "mcp_config.json"
+    "mcp_config.json",
+    "docs/engine-capabilities.md",
+    "SECURITY.md"
   ],
   "scripts": {
     "start": "node ./bin/recoveryai-mcp.js",

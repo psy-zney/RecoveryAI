@@ -173,7 +173,7 @@ mod tests {
 
     #[test]
     fn test_identical_fragments_high_score() {
-        let data = vec![0x42u8; 128]; // Uniform data
+        let data = [0x42u8; 128]; // Uniform data
         let result = evaluate_fragment_match(&data[64..], &data[..64], 100, 200);
         assert!(
             result.confidence > 0.5,

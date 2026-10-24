@@ -59,7 +59,7 @@ impl MasterBootRecord {
         if data.len() < SECTOR_SIZE {
             return None;
         }
-        Self::ref_from_bytes(&data[..std::mem::size_of::<Self>()]).ok()
+        Self::ref_from_bytes(data.get(..std::mem::size_of::<Self>())?).ok()
     }
 }
 
@@ -163,6 +163,33 @@ pub fn analyze_mbr(data: &[u8]) -> MbrAnalysis {
     }
 }
 
+/// Validates the signature and every nonempty partition against disk capacity.
+pub fn validate_mbr(data: &[u8], total_sectors: u64) -> Result<MbrAnalysis, String> {
+    let report = analyze_mbr(data);
+    if !report.valid_signature {
+        return Err("Invalid MBR boot signature".into());
+    }
+    let mut ranges = Vec::new();
+    for p in &report.partitions {
+        let end = p.lba_start as u64 + p.sector_count as u64;
+        if p.lba_start == 0 || p.sector_count == 0 || end > total_sectors {
+            return Err(format!(
+                "MBR partition {} exceeds disk capacity or has invalid range",
+                p.index
+            ));
+        }
+        if !matches!(data.get(446 + p.index as usize * 16), Some(0 | 0x80)) {
+            return Err("Invalid partition status".into());
+        }
+        ranges.push((p.lba_start as u64, end));
+    }
+    ranges.sort_unstable();
+    if ranges.windows(2).any(|r| r[0].1 > r[1].0) {
+        return Err("Overlapping MBR partition ranges".into());
+    }
+    Ok(report)
+}
+
 // ============================================================================
 // GPT Structures
 // ============================================================================
@@ -212,12 +239,35 @@ impl GptHeader {
         if data.len() < std::mem::size_of::<Self>() {
             return None;
         }
-        let header = Self::ref_from_bytes(&data[..std::mem::size_of::<Self>()]).ok()?;
-        if header.is_valid() {
+        let header = Self::ref_from_bytes(data.get(..std::mem::size_of::<Self>())?).ok()?;
+        let size = header.header_size as usize;
+        if !header.is_valid() || !(92..=data.len()).contains(&size) {
+            return None;
+        }
+        let mut crc_data = data.get(..size)?.to_vec();
+        crc_data.get_mut(16..20)?.fill(0);
+        if crc32fast::hash(&crc_data) == header.header_crc32 {
             Some(header)
         } else {
             None
         }
+    }
+
+    pub fn validate_geometry(&self, lba: u64, total_sectors: u64) -> Result<(), String> {
+        if self.my_lba != lba
+            || self.alternate_lba >= total_sectors
+            || self.alternate_lba == lba
+            || self.first_usable_lba > self.last_usable_lba
+            || self.last_usable_lba >= total_sectors
+            || self.partition_entry_size < 128
+            || !self.partition_entry_size.is_multiple_of(128)
+            || self.num_partition_entries == 0
+            || self.revision != 0x00010000
+            || self.reserved != 0
+        {
+            return Err("Invalid GPT header geometry".into());
+        }
+        Ok(())
     }
 
     /// Format GUID thành chuỗi chuẩn
@@ -254,7 +304,9 @@ impl GptPartitionEntry {
     pub fn name_string(&self) -> String {
         let u16_chars: Vec<u16> = self
             .name
-            .chunks_exact(2)
+            .as_chunks::<2>()
+            .0
+            .iter()
             .map(|c| u16::from_le_bytes([c[0], c[1]]))
             .take_while(|&c| c != 0)
             .collect();
@@ -264,7 +316,10 @@ impl GptPartitionEntry {
     /// Kích thước partition tính bằng sectors
     pub fn size_sectors(&self) -> u64 {
         if self.ending_lba >= self.starting_lba {
-            self.ending_lba - self.starting_lba + 1
+            self.ending_lba
+                .checked_sub(self.starting_lba)
+                .and_then(|n| n.checked_add(1))
+                .unwrap_or(0)
         } else {
             0
         }

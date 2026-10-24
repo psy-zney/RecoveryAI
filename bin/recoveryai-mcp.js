@@ -12,7 +12,6 @@
 const { spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
-const https = require('https');
 
 const isWindows = process.platform === 'win32';
 const binaryName = isWindows ? 'mcp-server.exe' : 'mcp-server';
@@ -38,57 +37,13 @@ function findBinary() {
   return null;
 }
 
-function downloadBinary(targetPath) {
-  const url = `https://github.com/psy-zney/resc/releases/latest/download/${binaryName}`;
-  process.stderr.write(`[resc MCP Launcher] Native binary not found locally.\n`);
-  process.stderr.write(`[resc MCP Launcher] Fetching prebuilt engine from GitHub Releases:\n  ${url}\n\n`);
-
-  return new Promise((resolve, reject) => {
-    function fetchUrl(currentUrl) {
-      https.get(currentUrl, (res) => {
-        if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-          return fetchUrl(res.headers.location);
-        }
-        if (res.statusCode !== 200) {
-          return reject(new Error(`Server responded with status code ${res.statusCode}`));
-        }
-
-        const file = fs.createWriteStream(targetPath);
-        res.pipe(file);
-
-        file.on('finish', () => {
-          file.close(() => {
-            try {
-              fs.chmodSync(targetPath, 0o755);
-            } catch (_) {}
-            process.stderr.write(`[RecoveryAI MCP Launcher] Successfully installed native engine to ${targetPath}\n\n`);
-            resolve(targetPath);
-          });
-        });
-      }).on('error', (err) => {
-        fs.unlink(targetPath, () => {});
-        reject(err);
-      });
-    }
-
-    fetchUrl(url);
-  });
-}
-
-async function run() {
+function run() {
   let binaryPath = findBinary();
 
   if (!binaryPath) {
-    const installTarget = path.resolve(__dirname, binaryName);
-    try {
-      binaryPath = await downloadBinary(installTarget);
-    } catch (err) {
-      console.error('[RecoveryAI MCP Launcher] Error: Native binary not found and automatic download failed.');
-      console.error('Details:', err.message);
-      console.error('\nPlease compile the native engine manually with:');
-      console.error('  cargo build --release\n');
-      process.exit(1);
-    }
+    console.error('[resc] NotImplemented: automatic execution of unverified downloads is disabled.');
+    console.error('Build locally with cargo build --release or set RECOVERYAI_MCP_BIN to a trusted binary.');
+    process.exit(1);
   }
 
   const userArgs = process.argv.slice(2);

@@ -79,7 +79,20 @@ impl NtfsBootSector {
         self.is_valid_oem_id()
             && self.is_valid_signature()
             && (self.bytes_per_sector == 512 || self.bytes_per_sector == 4096)
-            && self.sectors_per_cluster > 0
+            && self.sectors_per_cluster.is_power_of_two()
+            && self.mft_record_size() >= 512
+            && self.mft_record_size() <= 65536
+            && self.total_sectors > 0
+            && self.mft_lcn
+                < self
+                    .total_sectors
+                    .checked_div(self.sectors_per_cluster as u64)
+                    .unwrap_or(0)
+            && self.mft_mirr_lcn
+                < self
+                    .total_sectors
+                    .checked_div(self.sectors_per_cluster as u64)
+                    .unwrap_or(0)
     }
 
     /// Tính kích thước MFT record (bytes).
@@ -92,18 +105,25 @@ impl NtfsBootSector {
                 * self.sectors_per_cluster as u64
                 * self.bytes_per_sector as u64
         } else {
-            1u64 << ((-self.clusters_per_mft_record) as u64)
+            1u64.checked_shl(-(self.clusters_per_mft_record as i16) as u32)
+                .unwrap_or(0)
         }
     }
 
     /// Tính byte offset tuyệt đối của $MFT trên đĩa (từ đầu partition).
     pub fn mft_byte_offset(&self) -> u64 {
-        self.mft_lcn * self.sectors_per_cluster as u64 * self.bytes_per_sector as u64
+        self.mft_lcn
+            .checked_mul(self.sectors_per_cluster as u64)
+            .and_then(|n| n.checked_mul(self.bytes_per_sector as u64))
+            .unwrap_or(0)
     }
 
     /// Tính byte offset tuyệt đối của $MFTMirr
     pub fn mft_mirr_byte_offset(&self) -> u64 {
-        self.mft_mirr_lcn * self.sectors_per_cluster as u64 * self.bytes_per_sector as u64
+        self.mft_mirr_lcn
+            .checked_mul(self.sectors_per_cluster as u64)
+            .and_then(|n| n.checked_mul(self.bytes_per_sector as u64))
+            .unwrap_or(0)
     }
 
     /// Parse từ sector data
@@ -111,7 +131,7 @@ impl NtfsBootSector {
         if data.len() < std::mem::size_of::<Self>() {
             return None;
         }
-        Self::ref_from_bytes(&data[..std::mem::size_of::<Self>()]).ok()
+        Self::ref_from_bytes(data.get(..std::mem::size_of::<Self>())?).ok()
     }
 }
 
@@ -202,8 +222,8 @@ pub fn analyze_ntfs_vbr(data: &[u8]) -> NtfsVbrAnalysis {
         ));
     }
 
-    let volume_size_gb = vbr.total_sectors as f64 * vbr.bytes_per_sector as f64
-        / (1024.0 * 1024.0 * 1024.0);
+    let volume_size_gb =
+        vbr.total_sectors as f64 * vbr.bytes_per_sector as f64 / (1024.0 * 1024.0 * 1024.0);
 
     NtfsVbrAnalysis {
         valid: vbr.is_valid(),

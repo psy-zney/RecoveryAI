@@ -1,186 +1,376 @@
 {
-  "$schema": "http://json-schema.org/draft-07/schema#",
-  "title": "RecoveryAI MCP Tool Catalog",
-  "description": "Standard JSON-RPC 2.0 tool definitions exposed by RecoveryAI native engine",
+  "title": "resc implemented MCP tool catalog",
+  "description": "Generated from current tools/list. See docs/engine-capabilities.md. All MCP LBAs use the session sector_size (512 or 4096).",
   "tools": [
     {
-      "name": "list_physical_drives",
-      "description": "Enumerates all connected physical drives, USB flash drives, and external disk enclosures. Identifies drive numbers, models, bus types (USB/SCSI/NVMe), and highlights external disks suitable for recovery.",
-      "parameters": {
-        "type": "object",
-        "properties": {}
+      "description": "Enumerate Windows physical drives (read-only); up to eight samples, explicit errors if unavailable.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
       },
-      "returns": {
-        "drives_count": "number",
-        "drives": "array of { device_id, drive_number, target_path, model, interface_type, media_type, size_bytes, size_formatted, is_external, recommendation }",
-        "connection_options_for_broken_laptop": "object"
-      }
+      "name": "list_physical_drives"
     },
     {
-      "name": "open_recovery_session",
-      "description": "Opens a forensic recovery session for a physical disk (\\\\.\\PhysicalDriveX) or raw disk image (.img, .dd). Enforces 100% read-only access and initializes in-memory virtual overlay.",
-      "parameters": {
-        "type": "object",
+      "description": "Open a source image or supported device read-only. Every LBA uses the session sector_size (512 or 4096). A durable WAL is restored with resume_session_id. Source-device exports require destination isolation and currently return NotImplemented.",
+      "inputSchema": {
+        "additionalProperties": false,
         "properties": {
-          "path": {
-            "type": "string",
-            "description": "Target disk path. Example: '\\\\.\\PhysicalDrive1' or 'C:/data/corrupted_disk.img'"
+          "resume_session_id": {
+            "description": "Reopen an image session and replay its WAL",
+            "type": "string"
+          },
+          "sector_size": {
+            "enum": [
+              512,
+              4096
+            ],
+            "type": "integer"
+          },
+          "target_path": {
+            "type": "string"
           }
         },
-        "required": ["path"]
+        "required": [
+          "target_path"
+        ],
+        "type": "object"
       },
-      "returns": {
-        "session_id": "string (UUID)",
-        "path": "string",
-        "total_sectors": "number (int64)",
-        "sector_size": "number (default 512)",
-        "is_read_only": "boolean (always true)",
-        "bad_sectors_count": "number"
-      }
+      "name": "open_recovery_session"
     },
     {
-      "name": "scan_disk_topology",
-      "description": "Scans LBA 0..33 for MBR/GPT partition tables and scans backup GPT header at the end of the disk.",
-      "parameters": {
-        "type": "object",
+      "description": "Validate MBR partition bounds, both GPT header CRC32s, array CRC32s and partition bounds. Return compact partition samples.",
+      "inputSchema": {
+        "additionalProperties": false,
         "properties": {
-          "session_id": { "type": "string" }
+          "session_id": {
+            "type": "string"
+          }
         },
-        "required": ["session_id"]
+        "required": [
+          "session_id"
+        ],
+        "type": "object"
       },
-      "returns": {
-        "mbr_valid": "boolean",
-        "gpt_valid": "boolean",
-        "backup_gpt_status": "string ('VALID', 'CORRUPTED', or 'MISSING')",
-        "partitions": "array of { index, partition_type, start_lba, end_lba, total_sectors, filesystem_hint }"
-      }
+      "name": "scan_disk_topology"
     },
     {
-      "name": "inspect_sector_structure",
-      "description": "Inspects raw hex/ASCII content and Shannon entropy of specified sector range. Highlights known magic signatures (0x55AA, NTFS, FAT32, etc.).",
-      "parameters": {
-        "type": "object",
+      "description": "Read 1..8 sectors through the overlay. Return bounded hex preview or boot/header analysis; boot signatures do not establish mountability.",
+      "inputSchema": {
+        "additionalProperties": false,
         "properties": {
-          "session_id": { "type": "string" },
-          "lba": { "type": "integer", "minimum": 0 },
-          "count": { "type": "integer", "minimum": 1, "maximum": 64, "default": 1 }
+          "count": {
+            "maximum": 8,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "lba": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "parse_as": {
+            "enum": [
+              "RAW_HEX",
+              "MBR",
+              "GPT",
+              "NTFS_VBR",
+              "FAT32_BPB"
+            ],
+            "type": "string"
+          },
+          "session_id": {
+            "type": "string"
+          }
         },
-        "required": ["session_id", "lba"]
+        "required": [
+          "session_id",
+          "lba"
+        ],
+        "type": "object"
       },
-      "returns": {
-        "lba": "number",
-        "count": "number",
-        "entropy": "number (0.0 to 8.0)",
-        "detected_signatures": "array of string",
-        "hex_preview": "string",
-        "ascii_preview": "string"
-      }
+      "name": "inspect_sector_structure"
     },
     {
-      "name": "scan_filesystem_journals",
-      "description": "Deep parses filesystem metadata (NTFS $MFT, $UsnJrnl, $LogFile or FAT32/exFAT FAT table and root directories) to discover deleted files and unallocated clusters.",
-      "parameters": {
-        "type": "object",
+      "description": "NotImplemented: deleted-record and journal recovery. This tool returns an explicit error.",
+      "inputSchema": {
+        "additionalProperties": false,
         "properties": {
-          "session_id": { "type": "string" },
-          "partition_start_lba": { "type": "integer" }
+          "partition_start_lba": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "session_id": {
+            "type": "string"
+          }
         },
-        "required": ["session_id", "partition_start_lba"]
+        "required": [
+          "session_id",
+          "partition_start_lba"
+        ],
+        "type": "object"
       },
-      "returns": {
-        "filesystem": "string ('NTFS', 'FAT32', 'exFAT')",
-        "total_records_scanned": "number",
-        "deleted_records_found": "number",
-        "journal_events_count": "number",
-        "recoverable_files": "array of { id, name, size, parent_path, is_contiguous, allocated }"
-      }
+      "name": "scan_filesystem_journals"
     },
     {
-      "name": "start_async_disk_job",
-      "description": "Starts a long-running background forensic job (SIMD magic carver, fragment prefilter, or ddrescue clone). Returns job_id immediately for polling.",
-      "parameters": {
-        "type": "object",
+      "description": "Run a cancellable background job. SIMD jobs accept start_lba/end_lba (exclusive) or count_sectors. DD_RESCUE_CLONE requires destination_image and optional mapfile; uses native block copying, no resume. FRAGMENT_PREFILTER requires first_fragment_end_lba; optional candidate_start_lba/candidate_end_lba/cluster_sectors. Fragment scores are heuristics, not format validation. Poll returns counts and bounded samples.",
+      "inputSchema": {
+        "additionalProperties": false,
         "properties": {
-          "session_id": { "type": "string" },
           "job_type": {
-            "type": "string",
-            "enum": ["SIMD_VBR_HUNT", "SIMD_MAGIC_CARVE", "FRAGMENT_PREFILTER", "DD_RESCUE_CLONE"]
+            "enum": [
+              "SIMD_MAGIC_CARVE",
+              "SIMD_VBR_HUNT",
+              "FRAGMENT_PREFILTER",
+              "DD_RESCUE_CLONE"
+            ],
+            "type": "string"
           },
           "params": {
-            "type": "object",
-            "description": "Job specific parameters (e.g. target_file_types, start_lba, end_lba, destination_image)"
+            "type": "object"
+          },
+          "session_id": {
+            "type": "string"
           }
         },
-        "required": ["session_id", "job_type"]
+        "required": [
+          "session_id",
+          "job_type"
+        ],
+        "type": "object"
       },
-      "returns": {
-        "job_id": "string (UUID)",
-        "status": "string ('RUNNING')",
-        "estimated_sectors": "number"
-      }
+      "name": "start_async_disk_job"
     },
     {
-      "name": "poll_async_job",
-      "description": "Polls the status, progress percentage, and results of an ongoing background forensic job.",
-      "parameters": {
-        "type": "object",
+      "description": "Poll compact progress/result. Set cancel=true to request cooperative cancellation; wait for Cancelled acknowledgement.",
+      "inputSchema": {
+        "additionalProperties": false,
         "properties": {
-          "session_id": { "type": "string" },
-          "job_id": { "type": "string" }
-        },
-        "required": ["session_id", "job_id"]
-      },
-      "returns": {
-        "job_id": "string",
-        "status": "string ('RUNNING', 'COMPLETED', 'FAILED')",
-        "progress_percent": "number (0.0 to 100.0)",
-        "sectors_processed": "number",
-        "items_found": "number",
-        "results": "array or object"
-      }
-    },
-    {
-      "name": "virtual_patch_and_verify",
-      "description": "Applies an in-memory hex patch to the RAM Copy-on-Write overlay and verifies if filesystems/partitions can now mount or parse cleanly. ZERO physical disk modification.",
-      "parameters": {
-        "type": "object",
-        "properties": {
-          "session_id": { "type": "string" },
-          "lba": { "type": "integer" },
-          "patch_hex": { "type": "string", "description": "Hexadecimal string representing the replacement sector data" }
-        },
-        "required": ["session_id", "lba", "patch_hex"]
-      },
-      "returns": {
-        "patch_applied_in_ram": "boolean (true)",
-        "target_lba": "number",
-        "overlay_memory_used_kb": "number",
-        "verification_status": "string ('MOUNTABLE', 'VALID_SIGNATURE', 'CORRUPTED')",
-        "detected_filesystem": "string"
-      }
-    },
-    {
-      "name": "extract_recovered_data",
-      "description": "Extracts recovered files, partitions, or carved cluster streams to a secure physical destination directory on a different volume.",
-      "parameters": {
-        "type": "object",
-        "properties": {
-          "session_id": { "type": "string" },
-          "source_type": {
-            "type": "string",
-            "enum": ["TSK_TREE_EXTRACT", "CARVE_BY_LBA_RANGES", "PARTITION_IMAGE_EXPORT"]
+          "cancel": {
+            "default": false,
+            "type": "boolean"
           },
-          "target_dir": { "type": "string" },
-          "file_ids_or_ranges": { "type": "array" }
+          "cursor": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "job_id": {
+            "type": "string"
+          },
+          "limit": {
+            "maximum": 100,
+            "minimum": 1,
+            "type": "integer"
+          }
         },
-        "required": ["session_id", "source_type", "target_dir"]
+        "required": [
+          "job_id"
+        ],
+        "type": "object"
       },
-      "returns": {
-        "success": "boolean",
-        "files_extracted": "number",
-        "bytes_written": "number",
-        "destination_folder": "string"
-      }
+      "name": "poll_async_job"
+    },
+    {
+      "description": "Read persisted JSONL hits without rescanning. cursor is a byte offset returned by next_cursor. A page stops at the JSON budget even if limit is larger.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "cursor": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "job_id": {
+            "type": "string"
+          },
+          "limit": {
+            "maximum": 100,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "session_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "session_id",
+          "job_id"
+        ],
+        "type": "object"
+      },
+      "name": "read_scan_hits"
+    },
+    {
+      "description": "Apply checked virtual patches backed by the session WAL. SUCCESS requires native NTFS/FAT root-index traversal and a valid file entry. Specify partition_start_lba for an orphaned volume. UNVERIFIED means patches remain applied but filesystem validation failed.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "copy_from_lba": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "description": {
+            "maxLength": 512,
+            "type": "string"
+          },
+          "partition_start_lba": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "patches": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "hex_data": {
+                  "maxLength": 8192,
+                  "type": "string"
+                },
+                "lba": {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "offset": {
+                  "maximum": 4095,
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "lba",
+                "offset",
+                "hex_data"
+              ],
+              "type": "object"
+            },
+            "maxItems": 256,
+            "minItems": 1,
+            "type": "array"
+          },
+          "session_id": {
+            "type": "string"
+          },
+          "to_lba": {
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "session_id"
+        ],
+        "type": "object"
+      },
+      "name": "virtual_patch_and_verify"
+    },
+    {
+      "description": "Starts a DATA_EXTRACTION job immediately; poll_async_job reports bytes_written and accepts cancellation. Each output has a SHA-256 provenance manifest, staged before data publication. Exclusive output creation, no overwrite. CARVE_BY_LBA_RANGES params: ranges [{start_lba,count}], optional filename. TSK_TREE_EXTRACT uses native parsers through RAM, params: {partition_start_lba}; exports allocated user files recursively, not deleted records or alternate streams. Tree quotas: 10000 files, 8 GiB, depth 64; errors preserve completed files, remove current incomplete file.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "mode": {
+            "enum": [
+              "CARVE_BY_LBA_RANGES",
+              "TSK_TREE_EXTRACT"
+            ],
+            "type": "string"
+          },
+          "output_dir": {
+            "type": "string"
+          },
+          "params": {
+            "type": "object"
+          },
+          "session_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "session_id",
+          "mode",
+          "output_dir"
+        ],
+        "type": "object"
+      },
+      "name": "extract_recovered_data"
+    },
+    {
+      "description": "Legacy alias: open an image/device and validate partition structures.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "drive_number": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "image_path": {
+            "type": "string"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "name": "disk_scan_partitions"
+    },
+    {
+      "description": "Legacy alias: inspect NTFS boot parameters at partition_lba.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "partition_lba": {
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "partition_lba"
+        ],
+        "type": "object"
+      },
+      "name": "disk_read_boot_sector"
+    },
+    {
+      "description": "Legacy alias for checked RAM byte patches.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "hex_data": {
+            "type": "string"
+          },
+          "lba": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "offset": {
+            "maximum": 4095,
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "lba",
+          "offset",
+          "hex_data",
+          "description"
+        ],
+        "type": "object"
+      },
+      "name": "disk_apply_patch"
+    },
+    {
+      "description": "Rollback all patches when rollback_all=true; otherwise undo only the last patch in the default session.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "rollback_all": {
+            "default": false,
+            "type": "boolean"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "name": "disk_rollback_patches"
     }
   ]
 }

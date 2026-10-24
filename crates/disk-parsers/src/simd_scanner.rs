@@ -184,18 +184,30 @@ pub struct ScannerEngine {
 
 impl ScannerEngine {
     /// Tạo scanner với danh sách signatures mặc định.
-    pub fn new() -> Self {
+    pub fn new() -> std::io::Result<Self> {
         Self::with_signatures(default_signatures())
     }
 
     /// Tạo scanner với danh sách signatures tuỳ chỉnh.
-    pub fn with_signatures(signatures: Vec<FileSignature>) -> Self {
+    pub fn with_signatures(signatures: Vec<FileSignature>) -> std::io::Result<Self> {
+        if signatures.is_empty()
+            || signatures.len() > 4096
+            || signatures
+                .iter()
+                .any(|s| s.magic.is_empty() || s.magic.len() > 4096 || s.offset > 4096)
+        {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "Invalid scanner signature list",
+            ));
+        }
         let patterns: Vec<&[u8]> = signatures.iter().map(|s| s.magic).collect();
-        let automaton = AhoCorasick::new(&patterns).expect("Failed to build Aho-Corasick automaton");
-        Self {
+        let automaton = AhoCorasick::new(&patterns)
+            .map_err(|error| std::io::Error::other(format!("Cannot build scanner: {error}")))?;
+        Ok(Self {
             automaton,
             signatures,
-        }
+        })
     }
 
     /// Quét một chunk dữ liệu và trả về tất cả các hit.
@@ -204,7 +216,7 @@ impl ScannerEngine {
     pub fn scan_chunk(&self, data: &[u8], base_offset: u64) -> Vec<ScanHit> {
         let mut hits = Vec::new();
 
-        for mat in self.automaton.find_iter(data) {
+        for mat in self.automaton.find_overlapping_iter(data) {
             let sig_idx = mat.pattern().as_usize();
             let sig = &self.signatures[sig_idx];
 
@@ -215,10 +227,11 @@ impl ScannerEngine {
             }
 
             // Tính vị trí thực tế trên đĩa (trừ signature offset)
-            let actual_file_start = if sig.offset > 0 {
-                base_offset + match_pos as u64 - sig.offset as u64
-            } else {
-                base_offset + match_pos as u64
+            let Some(actual_file_start) = base_offset
+                .checked_add(match_pos as u64)
+                .and_then(|position| position.checked_sub(sig.offset as u64))
+            else {
+                continue;
             };
 
             // Kiểm tra alignment (file thường bắt đầu ở ranh giới sector)
@@ -239,12 +252,6 @@ impl ScannerEngine {
     /// Trả về số lượng signatures đang được quét.
     pub fn signature_count(&self) -> usize {
         self.signatures.len()
-    }
-}
-
-impl Default for ScannerEngine {
-    fn default() -> Self {
-        Self::new()
     }
 }
 
@@ -277,13 +284,67 @@ pub fn summarize_hits(hits: &[ScanHit], total_bytes: u64) -> ScanSummary {
         .into_iter()
         .map(|(file_type, count)| TypeCount { file_type, count })
         .collect();
-    hits_by_type.sort_by(|a, b| b.count.cmp(&a.count));
+    hits_by_type.sort_by_key(|count| std::cmp::Reverse(count.count));
 
     ScanSummary {
         total_bytes_scanned: total_bytes,
         total_hits: hits.len(),
         hits_by_type,
-        sample_hits: hits.iter().take(50).cloned().collect(),
+        sample_hits: hits.iter().take(8).cloned().collect(),
+    }
+}
+
+/// Carries at least 64 bytes across contiguous chunks and suppresses duplicate hits.
+pub struct StreamingScanner {
+    engine: ScannerEngine,
+    tail: Vec<u8>,
+    next_offset: Option<u64>,
+    overlap: usize,
+}
+impl StreamingScanner {
+    pub fn new() -> std::io::Result<Self> {
+        let engine = ScannerEngine::new()?;
+        let overlap = engine
+            .signatures
+            .iter()
+            .map(|s| s.magic.len() + s.offset)
+            .max()
+            .unwrap_or(0)
+            .max(64);
+        Ok(Self {
+            engine,
+            tail: Vec::new(),
+            next_offset: None,
+            overlap,
+        })
+    }
+    pub fn scan_next(&mut self, chunk: &[u8], offset: u64) -> std::io::Result<Vec<ScanHit>> {
+        if self.next_offset.is_some_and(|expected| expected != offset) {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "Scanner chunks must be contiguous",
+            ));
+        }
+        let end = offset.checked_add(chunk.len() as u64).ok_or_else(|| {
+            std::io::Error::new(std::io::ErrorKind::InvalidInput, "Scanner offset overflow")
+        })?;
+        let base = offset.checked_sub(self.tail.len() as u64).ok_or_else(|| {
+            std::io::Error::new(std::io::ErrorKind::InvalidInput, "Scanner offset underflow")
+        })?;
+        let mut data = std::mem::take(&mut self.tail);
+        data.extend_from_slice(chunk);
+        let hits = self
+            .engine
+            .scan_chunk(&data, base)
+            .into_iter()
+            .filter(|hit| {
+                let signature = &self.engine.signatures[hit.signature_index];
+                hit.byte_offset + signature.offset as u64 + signature.magic.len() as u64 > offset
+            })
+            .collect();
+        self.tail = data[data.len().saturating_sub(self.overlap)..].to_vec();
+        self.next_offset = Some(end);
+        Ok(hits)
     }
 }
 
@@ -292,8 +353,37 @@ mod tests {
     use super::*;
 
     #[test]
+    fn empty_custom_patterns_are_rejected() {
+        assert!(ScannerEngine::with_signatures(Vec::new()).is_err());
+    }
+    #[test]
+    fn split_signatures_are_found_once_at_every_boundary() {
+        for magic in [
+            b"%PDF".as_slice(),
+            &[0xff, 0xd8, 0xff, 0xe0],
+            &[0x50, 0x4b, 0x03, 0x04],
+        ] {
+            for split in 1..magic.len() {
+                let mut data = vec![0; 512 * 4];
+                let start = 512 - split;
+                data[start..start + magic.len()].copy_from_slice(magic);
+                let mut scanner = StreamingScanner::new().unwrap();
+                let mut hits = Vec::new();
+                for (i, chunk) in data.chunks(512).enumerate() {
+                    hits.extend(scanner.scan_next(chunk, i as u64 * 512).unwrap());
+                }
+                assert_eq!(
+                    hits.iter()
+                        .filter(|h| h.byte_offset == start as u64)
+                        .count(),
+                    1
+                );
+            }
+        }
+    }
+    #[test]
     fn test_detect_jpeg() {
-        let scanner = ScannerEngine::new();
+        let scanner = ScannerEngine::new().unwrap();
         let mut data = vec![0u8; 1024];
         // Đặt JPEG header tại offset 0
         data[0] = 0xFF;
@@ -308,7 +398,7 @@ mod tests {
 
     #[test]
     fn test_detect_pdf() {
-        let scanner = ScannerEngine::new();
+        let scanner = ScannerEngine::new().unwrap();
         let mut data = vec![0u8; 512];
         data[..4].copy_from_slice(b"%PDF");
 
@@ -319,7 +409,7 @@ mod tests {
 
     #[test]
     fn test_multiple_hits() {
-        let scanner = ScannerEngine::new();
+        let scanner = ScannerEngine::new().unwrap();
         let mut data = vec![0u8; 2048];
         // JPEG tại offset 0
         data[0..4].copy_from_slice(&[0xFF, 0xD8, 0xFF, 0xE0]);

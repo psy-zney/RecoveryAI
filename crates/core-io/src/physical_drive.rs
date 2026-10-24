@@ -1,302 +1,438 @@
-//! Truy cập ổ đĩa vật lý qua Win32 API (Read-Only).
-//!
-//! Mở `\\.\PhysicalDriveX` với các cờ:
-//! - `GENERIC_READ`: Chỉ đọc, không ghi
-//! - `FILE_FLAG_NO_BUFFERING`: Bỏ qua cache của OS, đọc trực tiếp từ đĩa (DMA)
-//! - `FILE_SHARE_READ | FILE_SHARE_WRITE`: Cho phép chia sẻ với OS
-//!
-//! Tất cả đọc dùng `AlignedBuffer` để đảm bảo alignment 4096 bytes.
-
-use crate::virtual_overlay::RawStorageReader;
+//! Read-only positional I/O. Windows requests are overlapped and cancellable.
+//! CancelIoEx requests cancellation; buffers stay alive until kernel completion.
+use crate::{AlignedBuffer, BadSectorMap, RawStorageReader};
+use std::fs::File;
 use std::io;
-
-#[cfg(target_os = "windows")]
-use windows_sys::Win32::Foundation::{CloseHandle, HANDLE, INVALID_HANDLE_VALUE};
-#[cfg(target_os = "windows")]
-use windows_sys::Win32::Storage::FileSystem::{
-    CreateFileW, ReadFile, SetFilePointerEx, FILE_FLAG_NO_BUFFERING, FILE_SHARE_READ,
-    FILE_SHARE_WRITE, OPEN_EXISTING,
+#[cfg(windows)]
+use std::os::windows::io::{AsRawHandle, FromRawHandle};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Mutex,
 };
-#[cfg(target_os = "windows")]
-use windows_sys::Win32::Foundation::GENERIC_READ;
+use std::time::Duration;
+#[cfg(windows)]
+use std::time::Instant;
+#[cfg(windows)]
+use windows_sys::Win32::{
+    Foundation::*,
+    Storage::FileSystem::*,
+    System::{Threading::*, IO::*},
+};
 
-/// Đại diện cho một ổ đĩa vật lý đã mở (read-only).
+pub const READ_TIMEOUT: Duration = Duration::from_millis(500);
 pub struct PhysicalDrive {
-    #[cfg(target_os = "windows")]
-    handle: HANDLE,
-    #[cfg(not(target_os = "windows"))]
-    _file: std::fs::File,
-    /// Kích thước sector vật lý (512 hoặc 4096 bytes)
+    file: File,
     pub sector_size: u32,
-    /// Tổng dung lượng ổ đĩa tính bằng bytes
     pub disk_size_bytes: u64,
+    bad: Mutex<BadSectorMap>,
 }
-
 impl PhysicalDrive {
-    /// Mở ổ đĩa vật lý theo số (0, 1, 2...).
-    ///
-    /// Yêu cầu quyền Administrator.
-    ///
-    /// # Errors
-    /// - `io::Error` nếu không có quyền truy cập hoặc ổ đĩa không tồn tại
-    #[cfg(target_os = "windows")]
-    pub fn open(drive_number: u32) -> io::Result<Self> {
-        let path = format!("\\\\.\\PhysicalDrive{}", drive_number);
-        Self::open_path(&path)
+    pub fn open(number: u32) -> io::Result<Self> {
+        Self::open_path(&format!(r"\\.\PhysicalDrive{number}"))
     }
-
-    /// Mở thiết bị từ Win32 device path bất kỳ (ví dụ `\\.\PhysicalDrive1` hoặc `\\.\D:`).
-    #[cfg(target_os = "windows")]
-    pub fn open_path(device_path: &str) -> io::Result<Self> {
-        let wide_path: Vec<u16> = device_path.encode_utf16().chain(std::iter::once(0)).collect();
-
-        let handle = unsafe {
+    #[cfg(windows)]
+    pub fn open_path(path: &str) -> io::Result<Self> {
+        let wide: Vec<u16> = path.encode_utf16().chain(Some(0)).collect();
+        let metadata_handle = unsafe {
             CreateFileW(
-                wide_path.as_ptr(),
+                wide.as_ptr(),
                 GENERIC_READ,
                 FILE_SHARE_READ | FILE_SHARE_WRITE,
                 std::ptr::null(),
                 OPEN_EXISTING,
-                FILE_FLAG_NO_BUFFERING,
-                std::ptr::null_mut() as _,
+                0,
+                std::ptr::null_mut(),
             )
         };
-
-        if handle == INVALID_HANDLE_VALUE {
+        if metadata_handle == INVALID_HANDLE_VALUE {
             return Err(io::Error::last_os_error());
         }
-
-        // Truy vấn geometry để lấy sector size và disk size
-        let (sector_size, disk_size_bytes) = Self::query_disk_geometry(handle)?;
-
-        Ok(Self {
-            handle,
-            sector_size,
-            disk_size_bytes,
-        })
-    }
-
-    /// Fallback cho non-Windows (development/testing)
-    #[cfg(not(target_os = "windows"))]
-    pub fn open(_drive_number: u32) -> io::Result<Self> {
-        Err(io::Error::new(
-            io::ErrorKind::Unsupported,
-            "PhysicalDrive only supported on Windows",
-        ))
-    }
-
-    #[cfg(not(target_os = "windows"))]
-    pub fn open_path(_device_path: &str) -> io::Result<Self> {
-        Err(io::Error::new(
-            io::ErrorKind::Unsupported,
-            "PhysicalDrive only supported on Windows",
-        ))
-    }
-
-    /// Mở từ file image (.img, .dd) thay vì ổ đĩa thật.
-    /// Hữu ích cho testing và phân tích offline.
-    #[cfg(target_os = "windows")]
-    pub fn open_image(path: &str) -> io::Result<Self> {
-        let wide_path: Vec<u16> = path.encode_utf16().chain(std::iter::once(0)).collect();
-
+        let metadata_file = unsafe { File::from_raw_handle(metadata_handle as _) };
+        let (sector_size, length) = Self::geometry(&metadata_file)?;
         let handle = unsafe {
             CreateFileW(
-                wide_path.as_ptr(),
+                wide.as_ptr(),
                 GENERIC_READ,
-                FILE_SHARE_READ,
+                FILE_SHARE_READ | FILE_SHARE_WRITE,
                 std::ptr::null(),
                 OPEN_EXISTING,
-                0, // Không cần NO_BUFFERING cho file image
-                std::ptr::null_mut() as _,
+                FILE_FLAG_NO_BUFFERING | FILE_FLAG_OVERLAPPED,
+                std::ptr::null_mut(),
             )
         };
-
         if handle == INVALID_HANDLE_VALUE {
             return Err(io::Error::last_os_error());
         }
-
-        // Lấy kích thước file
-        let mut file_size: i64 = 0;
-        let success =
-            unsafe { SetFilePointerEx(handle, 0, &mut file_size, 2 /* FILE_END */) };
-        if success == 0 {
-            let err = io::Error::last_os_error();
-            unsafe { CloseHandle(handle) };
-            return Err(err);
-        }
-        // Reset về đầu file
-        unsafe { SetFilePointerEx(handle, 0, std::ptr::null_mut(), 0 /* FILE_BEGIN */) };
-
-        Ok(Self {
-            handle,
-            sector_size: 512,
-            disk_size_bytes: file_size as u64,
-        })
+        let file = unsafe { File::from_raw_handle(handle as _) };
+        Self::from_file(file, sector_size, length)
     }
-
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(not(windows))]
+    pub fn open_path(_: &str) -> io::Result<Self> {
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "NotImplemented: raw devices on this OS",
+        ))
+    }
     pub fn open_image(path: &str) -> io::Result<Self> {
-        use std::io::{Read, Seek, SeekFrom};
-        let mut file = std::fs::File::open(path)?;
-        let size = file.seek(SeekFrom::End(0))?;
-        file.seek(SeekFrom::Start(0))?;
+        #[cfg(windows)]
+        let file = {
+            use std::os::windows::fs::OpenOptionsExt;
+            std::fs::OpenOptions::new()
+                .read(true)
+                .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE)
+                .custom_flags(FILE_FLAG_OVERLAPPED)
+                .open(path)?
+        };
+        #[cfg(not(windows))]
+        let file = File::open(path)?;
+        let length = file.metadata()?.len();
+        Self::from_file(file, 512, length)
+    }
+    fn from_file(file: File, sector_size: u32, length: u64) -> io::Result<Self> {
+        if !matches!(sector_size, 512 | 4096)
+            || length == 0
+            || !length.is_multiple_of(sector_size as u64)
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "Invalid disk geometry",
+            ));
+        }
         Ok(Self {
-            _file: file,
-            sector_size: 512,
-            disk_size_bytes: size,
+            file,
+            sector_size,
+            disk_size_bytes: length,
+            bad: Mutex::new(BadSectorMap::new()),
         })
     }
-
-    /// Đọc `count` sector bắt đầu từ `start_lba` vào `buf`.
-    ///
-    /// `buf` phải có kích thước >= `count * sector_size` và phải căn chỉnh 4KB.
-    #[cfg(target_os = "windows")]
-    pub fn read_sectors_raw(&self, start_lba: u64, count: usize, buf: &mut [u8]) -> io::Result<()> {
-        let byte_offset = start_lba * self.sector_size as u64;
-        let bytes_to_read = count * self.sector_size as usize;
-
-        if buf.len() < bytes_to_read {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                format!(
-                    "Buffer too small: {} < {} (need {} sectors × {} bytes)",
-                    buf.len(),
-                    bytes_to_read,
-                    count,
-                    self.sector_size
-                ),
-            ));
-        }
-
-        // Seek tới vị trí LBA
-        let success = unsafe {
-            SetFilePointerEx(
-                self.handle,
-                byte_offset as i64,
-                std::ptr::null_mut(),
-                0, // FILE_BEGIN
-            )
-        };
-        if success == 0 {
-            return Err(io::Error::last_os_error());
-        }
-
-        // Đọc dữ liệu
-        let mut bytes_read: u32 = 0;
-        let success = unsafe {
-            ReadFile(
-                self.handle,
-                buf.as_mut_ptr() as _,
-                bytes_to_read as u32,
-                &mut bytes_read,
-                std::ptr::null_mut(),
-            )
-        };
-        if success == 0 {
-            return Err(io::Error::last_os_error());
-        }
-
-        if (bytes_read as usize) < bytes_to_read {
-            return Err(io::Error::new(
-                io::ErrorKind::UnexpectedEof,
-                format!(
-                    "Short read: got {} bytes, expected {}",
-                    bytes_read, bytes_to_read
-                ),
-            ));
-        }
-
-        Ok(())
-    }
-
-    #[cfg(not(target_os = "windows"))]
-    pub fn read_sectors_raw(&self, start_lba: u64, count: usize, buf: &mut [u8]) -> io::Result<()> {
-        use std::io::{Read, Seek, SeekFrom};
-        let byte_offset = start_lba * self.sector_size as u64;
-        let bytes_to_read = count * self.sector_size as usize;
-        let file = &self._file;
-        // Non-Windows: use standard file I/O (for testing)
-        let mut file_ref = unsafe { &*(&file as *const _ as *const std::fs::File) };
-        // This is a simplified stub for non-Windows
-        let _ = (byte_offset, bytes_to_read, buf);
-        Err(io::Error::new(io::ErrorKind::Unsupported, "Not implemented for this OS"))
-    }
-
-    /// Truy vấn disk geometry qua IOCTL
-    #[cfg(target_os = "windows")]
-    fn query_disk_geometry(handle: HANDLE) -> io::Result<(u32, u64)> {
+    #[cfg(windows)]
+    fn geometry(file: &File) -> io::Result<(u32, u64)> {
         use windows_sys::Win32::System::Ioctl::IOCTL_DISK_GET_DRIVE_GEOMETRY_EX;
-
         #[repr(C)]
-        struct DiskGeometryEx {
-            geometry: DiskGeometry,
-            disk_size: i64,
-            _data: [u8; 256],
-        }
-
-        #[repr(C)]
-        struct DiskGeometry {
+        struct Geometry {
             cylinders: i64,
-            media_type: u32,
-            tracks_per_cylinder: u32,
-            sectors_per_track: u32,
-            bytes_per_sector: u32,
+            media: u32,
+            tracks: u32,
+            sectors: u32,
+            bytes: u32,
+            length: i64,
+            data: [u8; 256],
         }
-
-        let mut geo = std::mem::MaybeUninit::<DiskGeometryEx>::zeroed();
-        let mut bytes_returned: u32 = 0;
-
-        let success = unsafe {
-            windows_sys::Win32::System::IO::DeviceIoControl(
-                handle,
+        let mut geometry = std::mem::MaybeUninit::<Geometry>::zeroed();
+        let mut returned = 0;
+        if unsafe {
+            DeviceIoControl(
+                file.as_raw_handle() as _,
                 IOCTL_DISK_GET_DRIVE_GEOMETRY_EX,
                 std::ptr::null(),
                 0,
-                geo.as_mut_ptr() as *mut _,
-                std::mem::size_of::<DiskGeometryEx>() as u32,
-                &mut bytes_returned,
+                geometry.as_mut_ptr().cast(),
+                std::mem::size_of::<Geometry>() as u32,
+                &mut returned,
                 std::ptr::null_mut(),
             )
-        };
-
-        if success == 0 {
-            // Fallback nếu IOCTL thất bại
-            tracing::warn!("IOCTL_DISK_GET_DRIVE_GEOMETRY_EX failed, using defaults");
-            return Ok((512, 0));
+        } == 0
+        {
+            return Err(io::Error::last_os_error());
         }
-
-        let geo = unsafe { geo.assume_init() };
-        Ok((geo.geometry.bytes_per_sector, geo.disk_size as u64))
+        if returned < 32 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "Truncated disk geometry",
+            ));
+        }
+        let geometry = unsafe { geometry.assume_init() };
+        if geometry.length <= 0 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "Invalid device length",
+            ));
+        }
+        Ok((geometry.bytes, geometry.length as u64))
     }
-
-    /// Trả về tổng số sector trên đĩa
     pub fn total_sectors(&self) -> u64 {
-        if self.sector_size > 0 {
-            self.disk_size_bytes / self.sector_size as u64
-        } else {
-            0
-        }
+        self.disk_size_bytes / self.sector_size as u64
     }
-}
-
-impl RawStorageReader for PhysicalDrive {
-    fn read_physical_sectors(
-        &mut self,
-        start_lba: u64,
+    pub fn read_sectors_raw(&self, lba: u64, count: usize, buf: &mut [u8]) -> io::Result<()> {
+        self.read_raw(lba, count, buf, None)
+    }
+    fn read_raw(
+        &self,
+        lba: u64,
         count: usize,
         buf: &mut [u8],
+        cancel: Option<&AtomicBool>,
     ) -> io::Result<()> {
-        self.read_sectors_raw(start_lba, count, buf)
+        let offset = lba
+            .checked_mul(self.sector_size as u64)
+            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "LBA overflow"))?;
+        let size = count
+            .checked_mul(self.sector_size as usize)
+            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "Read size overflow"))?;
+        if size > 1024 * 1024
+            || size > buf.len()
+            || offset
+                .checked_add(size as u64)
+                .is_none_or(|end| end > self.disk_size_bytes)
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "Physical read exceeds capacity/buffer/budget",
+            ));
+        }
+        if cancel.is_some_and(|flag| flag.load(Ordering::Acquire)) {
+            return Err(io::Error::new(io::ErrorKind::Interrupted, "Job cancelled"));
+        }
+        if size == 0 {
+            return Ok(());
+        }
+        let mut aligned = AlignedBuffer::new(size)?;
+        #[cfg(windows)]
+        let result = self.overlapped(offset, &mut aligned[..size], cancel);
+        #[cfg(unix)]
+        let result = {
+            use std::os::unix::fs::FileExt;
+            self.file.read_exact_at(&mut aligned[..size], offset)
+        };
+        #[cfg(not(any(windows, unix)))]
+        let result = Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "NotImplemented: positioned I/O",
+        ));
+        if let Err(error) = &result {
+            if let Ok(mut map) = self.bad.lock() {
+                let blocks = self.sector_size as u64 / 512;
+                for block in lba * blocks..(lba + count as u64) * blocks {
+                    if error.kind() == io::ErrorKind::Interrupted {
+                        map.mark_slow(block, READ_TIMEOUT)
+                    } else {
+                        map.mark_bad(block, error.to_string())
+                    }
+                }
+            }
+        }
+        result?;
+        buf[..size].copy_from_slice(&aligned[..size]);
+        Ok(())
+    }
+    #[cfg(windows)]
+    fn overlapped(
+        &self,
+        offset: u64,
+        buf: &mut [u8],
+        cancel: Option<&AtomicBool>,
+    ) -> io::Result<()> {
+        struct Event(HANDLE);
+        impl Drop for Event {
+            fn drop(&mut self) {
+                unsafe { CloseHandle(self.0) };
+            }
+        }
+        let event = Event(unsafe { CreateEventW(std::ptr::null(), 1, 0, std::ptr::null()) });
+        if event.0.is_null() {
+            return Err(io::Error::last_os_error());
+        }
+        let mut request: OVERLAPPED = unsafe { std::mem::zeroed() };
+        request.Anonymous.Anonymous.Offset = offset as u32;
+        request.Anonymous.Anonymous.OffsetHigh = (offset >> 32) as u32;
+        request.hEvent = event.0;
+        let handle = self.file.as_raw_handle() as _;
+        let mut transferred = 0;
+        let started = Instant::now();
+        let success = unsafe {
+            ReadFile(
+                handle,
+                buf.as_mut_ptr(),
+                buf.len() as u32,
+                std::ptr::null_mut(),
+                &mut request,
+            )
+        };
+        if success == 0 && unsafe { GetLastError() } != ERROR_IO_PENDING {
+            return Err(io::Error::last_os_error());
+        }
+        loop {
+            let reason = if cancel.is_some_and(|flag| flag.load(Ordering::Acquire)) {
+                Some(io::ErrorKind::Interrupted)
+            } else if started.elapsed() >= READ_TIMEOUT {
+                Some(io::ErrorKind::TimedOut)
+            } else {
+                None
+            };
+            if let Some(reason) = reason {
+                unsafe { CancelIoEx(handle, &request) };
+                // Cancellation is asynchronous. Releasing the stack OVERLAPPED or
+                // buffer before completion would be a use-after-free in the driver.
+                unsafe { GetOverlappedResult(handle, &request, &mut transferred, 1) };
+                return Err(io::Error::new(
+                    reason,
+                    "Kernel read cancelled (driver completion drained)",
+                ));
+            }
+            let wait = unsafe { WaitForSingleObject(event.0, 10) };
+            if wait == WAIT_OBJECT_0 {
+                break;
+            }
+            if wait != WAIT_TIMEOUT {
+                let error = io::Error::last_os_error();
+                unsafe {
+                    CancelIoEx(handle, &request);
+                    GetOverlappedResult(handle, &request, &mut transferred, 1)
+                };
+                return Err(error);
+            }
+        }
+        if unsafe { GetOverlappedResult(handle, &request, &mut transferred, 0) } == 0 {
+            return Err(io::Error::last_os_error());
+        }
+        if transferred as usize != buf.len() {
+            return Err(io::Error::new(
+                io::ErrorKind::UnexpectedEof,
+                "Short overlapped read",
+            ));
+        }
+        Ok(())
     }
 }
-
-#[cfg(target_os = "windows")]
-impl Drop for PhysicalDrive {
-    fn drop(&mut self) {
-        unsafe {
-            CloseHandle(self.handle);
+impl RawStorageReader for PhysicalDrive {
+    fn len_bytes(&self) -> io::Result<u64> {
+        Ok(self.disk_size_bytes)
+    }
+    fn read_physical_sectors(&mut self, lba: u64, count: usize, buf: &mut [u8]) -> io::Result<()> {
+        self.read_cancellable(lba, count, buf, None)
+    }
+    fn read_cancellable(
+        &mut self,
+        lba: u64,
+        count: usize,
+        buf: &mut [u8],
+        cancel: Option<&AtomicBool>,
+    ) -> io::Result<()> {
+        let offset = lba
+            .checked_mul(512)
+            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "LBA overflow"))?;
+        let bytes = count
+            .checked_mul(512)
+            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "Read overflow"))?;
+        if bytes > buf.len()
+            || bytes > 1024 * 1024 - self.sector_size as usize
+            || offset
+                .checked_add(bytes as u64)
+                .is_none_or(|end| end > self.disk_size_bytes)
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "Read outside source/buffer",
+            ));
+        }
+        if bytes == 0 {
+            return Ok(());
+        }
+        let sector = self.sector_size as u64;
+        let prefix = (offset % sector) as usize;
+        let blocks = (prefix + bytes).div_ceil(sector as usize);
+        let mut aligned = AlignedBuffer::new(blocks * sector as usize)?;
+        self.read_raw(offset / sector, blocks, &mut aligned, cancel)?;
+        buf[..bytes].copy_from_slice(&aligned[prefix..prefix + bytes]);
+        Ok(())
+    }
+    fn bad_sector_ranges(&self) -> Vec<(u64, u64)> {
+        self.bad
+            .lock()
+            .map(|m| m.contiguous_bad_ranges())
+            .unwrap_or_default()
+    }
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[cfg(windows)]
+    #[test]
+    fn pending_kernel_read_is_cancelled_for_timeout_and_job_signal() {
+        use std::sync::Arc;
+        use windows_sys::Win32::System::Pipes::*;
+        for signal in [false, true] {
+            let path = format!(
+                r"\\.\pipe\resc-read-test-{}-{}",
+                std::process::id(),
+                u8::from(signal)
+            );
+            let wide: Vec<u16> = path.encode_utf16().chain(Some(0)).collect();
+            let handle = unsafe {
+                CreateNamedPipeW(
+                    wide.as_ptr(),
+                    PIPE_ACCESS_INBOUND | FILE_FLAG_OVERLAPPED,
+                    PIPE_TYPE_BYTE | PIPE_WAIT,
+                    1,
+                    4096,
+                    4096,
+                    0,
+                    std::ptr::null(),
+                )
+            };
+            assert_ne!(
+                handle,
+                INVALID_HANDLE_VALUE,
+                "{}",
+                io::Error::last_os_error()
+            );
+            let file = unsafe { File::from_raw_handle(handle as _) };
+            let client = std::fs::OpenOptions::new().write(true).open(&path).unwrap();
+            // The client connected between CreateNamedPipe and ConnectNamedPipe.
+            let connected = unsafe { ConnectNamedPipe(handle, std::ptr::null_mut()) };
+            assert!(connected != 0 || unsafe { GetLastError() } == ERROR_PIPE_CONNECTED);
+            let reader = PhysicalDrive::from_file(file, 512, 512).unwrap();
+            let cancel = Arc::new(AtomicBool::new(false));
+            let signal_thread = if signal {
+                let cancel = cancel.clone();
+                Some(std::thread::spawn(move || {
+                    std::thread::sleep(Duration::from_millis(30));
+                    cancel.store(true, Ordering::Release);
+                }))
+            } else {
+                None
+            };
+            let start = Instant::now();
+            let mut bytes = [0u8; 512];
+            let error = reader
+                .read_raw(0, 1, &mut bytes, Some(&cancel))
+                .unwrap_err();
+            assert_eq!(
+                error.kind(),
+                if signal {
+                    io::ErrorKind::Interrupted
+                } else {
+                    io::ErrorKind::TimedOut
+                }
+            );
+            assert!(start.elapsed() < Duration::from_secs(2));
+            if !signal {
+                assert_eq!(reader.bad.lock().unwrap().bad_count(), 1);
+            }
+            if let Some(thread) = signal_thread {
+                thread.join().unwrap();
+            }
+            drop(client);
+            drop(reader);
         }
     }
+    #[test]
+    fn image_reads_are_positional_and_observe_preexisting_cancellation() {
+        let path = std::env::temp_dir().join(format!("resc-overlapped-{}.img", std::process::id()));
+        std::fs::write(&path, vec![0x42; 4096]).unwrap();
+        let mut reader = PhysicalDrive::open_image(path.to_str().unwrap()).unwrap();
+        let mut bytes = [0; 512];
+        reader.read_physical_sectors(2, 1, &mut bytes).unwrap();
+        assert_eq!(bytes, [0x42; 512]);
+        let cancelled = AtomicBool::new(true);
+        assert_eq!(
+            reader
+                .read_cancellable(0, 1, &mut bytes, Some(&cancelled))
+                .unwrap_err()
+                .kind(),
+            io::ErrorKind::Interrupted
+        );
+        drop(reader);
+        std::fs::remove_file(path).unwrap();
+    }
 }
-
-unsafe impl Send for PhysicalDrive {}

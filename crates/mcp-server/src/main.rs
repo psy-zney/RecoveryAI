@@ -1,27 +1,17 @@
-//! # MCP Server — AI-Driven Disk Forensics & Data Recovery
-//!
-//! Entry point cho JSON-RPC 2.0 server qua stdio.
-//! Cung cấp 8 MCP Tools chia theo 4 nhóm:
-//!
-//! ## Nhóm 1: Khám phá & Chẩn đoán
-//! - `disk_scan_partitions`: Quét layout phân vùng (MBR + GPT)
-//! - `disk_read_boot_sector`: Đọc và phân tích VBR (NTFS/FAT32)
-//!
-//! ## Nhóm 2: Quét & Phân tích
-//! - `disk_scan_signatures`: Quét chữ ký file (SIMD carving)
-//! - `disk_analyze_entropy`: Đo Shannon Entropy của vùng đĩa
-//!
-//! ## Nhóm 3: Vá thử & Phục hồi (Copy-on-Write)
-//! - `disk_apply_patch`: Áp dụng bản vá ảo trên RAM
-//! - `disk_rollback_patches`: Rollback bản vá
-//!
-//! ## Nhóm 4: Trích xuất & Cứu dữ liệu
-//! - `disk_extract_file`: Trích xuất file qua TSK icat
-//! - `disk_run_carving`: Chạy PhotoRec file carving
+//! Read-only disk forensics MCP server with native RAM-overlay filesystem access.
+//! `tools/list` describes implemented capabilities and explicit unsupported features.
 
+mod extraction;
 mod handlers;
+mod hit_store;
 mod job_manager;
+mod jobs;
+mod manifest;
+mod native_fs;
+mod safe_output;
+mod session_store;
 mod tools_schema;
+mod topology;
 
 use anyhow::Result;
 use tracing_subscriber::EnvFilter;
@@ -36,12 +26,39 @@ async fn main() -> Result<()> {
 }
 
 async fn real_main() -> Result<()> {
+    #[cfg(panic = "abort")]
+    anyhow::bail!("Unsafe build: resc requires panic=unwind to preserve parser crash isolation");
+
     let args: Vec<String> = std::env::args().collect();
+    let controls = args[1..]
+        .iter()
+        .filter(|arg| arg.as_str() != "--read-only-enforced")
+        .collect::<Vec<_>>();
+    anyhow::ensure!(
+        controls.len() <= 1,
+        "Only one command-line action may be specified"
+    );
+    if let Some(argument) = controls.first() {
+        anyhow::ensure!(
+            matches!(
+                argument.as_str(),
+                "--help" | "-h" | "--version" | "-v" | "--list-drives"
+            ),
+            "NotImplemented: command-line option {argument}"
+        );
+    }
+    let mut args = args;
+    if let Some(index) = args
+        .iter()
+        .position(|arg| arg != "--read-only-enforced" && arg != &args[0])
+    {
+        args.swap(1, index);
+    }
     if args.len() > 1 {
         match args[1].as_str() {
             "--help" | "-h" => {
                 println!(
-r#"================================================================================
+                    r#"================================================================================
   RecoveryAI — SIMD-Accelerated Digital Forensics & Data Recovery Engine
 ================================================================================
 Usage:
@@ -59,11 +76,12 @@ Options:
   --read-only-enforced Ensure strict 100% read-only access (default)
 
 Protocol: Model Context Protocol (MCP) over JSON-RPC 2.0 stdio
-Safety:   100% Read-Only Physical Access + Copy-on-Write RAM Sandbox"#);
+Safety:   100% Read-Only Physical Access + Copy-on-Write RAM Sandbox"#
+                );
                 return Ok(());
             }
             "--version" | "-v" => {
-                println!("RecoveryAI MCP Server v1.0.0 (x86_64 SIMD AVX2/SSE4.2)");
+                println!("resc MCP Server v{}", env!("CARGO_PKG_VERSION"));
                 return Ok(());
             }
             "--list-drives" => {
@@ -73,14 +91,18 @@ Safety:   100% Read-Only Physical Access + Copy-on-Write RAM Sandbox"#);
                 return Ok(());
             }
             _ => {
-                // Forwarded MCP client options (e.g. --read-only-enforced, --tsk-dir)
+                for argument in &args[1..] {
+                    anyhow::ensure!(
+                        argument == "--read-only-enforced",
+                        "NotImplemented: command-line option {argument}"
+                    );
+                }
             }
         }
     }
 
     // Khởi tạo logging (ghi ra stderr để không can thiệp stdio MCP)
-    let filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new("info"));
+    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
 
     tracing_subscriber::fmt()
         .with_env_filter(filter)

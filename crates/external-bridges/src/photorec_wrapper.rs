@@ -5,7 +5,6 @@
 
 use serde::Serialize;
 use std::path::PathBuf;
-use tokio::process::Command;
 
 const DEFAULT_PHOTOREC_BIN: &str = "binaries/photorec";
 
@@ -67,50 +66,8 @@ impl PhotoRecWrapper {
     /// Chạy PhotoRec ở chế độ headless.
     ///
     /// Lệnh: `photorec /cmd <image_path> partition_type,<partition>,search`
-    pub async fn run_carving(&self, config: &PhotoRecConfig) -> anyhow::Result<PhotoRecResult> {
-        // Tạo output directory
-        tokio::fs::create_dir_all(&config.output_dir).await?;
-
-        let mut args = vec!["/cmd".to_string(), config.image_path.clone()];
-
-        // Cấu hình partition type
-        if config.whole_disk {
-            args.push("partition_type,None".into());
-        }
-
-        // Thêm output dir
-        args.push(format!("fileopt,everything,disable"));
-
-        // Enable specific file types
-        for ft in &config.file_types {
-            args.push(format!("fileopt,{},enable", ft));
-        }
-
-        args.push("search".into());
-
-        tracing::info!(args = ?args, "Running PhotoRec");
-
-        let output = Command::new(&self.bin_path)
-            .args(&args)
-            .current_dir(&config.output_dir)
-            .output()
-            .await?;
-
-        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-
-        // Parse số file recovered từ output
-        let files_recovered = parse_recovered_count(&stdout);
-
-        Ok(PhotoRecResult {
-            command: format!("photorec {}", args.join(" ")),
-            exit_code: output.status.code().unwrap_or(-1),
-            output_dir: config.output_dir.clone(),
-            stdout,
-            stderr,
-            success: output.status.success(),
-            files_recovered,
-        })
+    pub async fn run_carving(&self, _config: &PhotoRecConfig) -> anyhow::Result<PhotoRecResult> {
+        anyhow::bail!("NotImplemented: legacy subprocess adapter is disabled; use the native RAM-overlay MCP engine")
     }
 
     /// Liệt kê các file đã recover trong output directory.
@@ -136,7 +93,7 @@ impl PhotoRecWrapper {
             }
         }
 
-        files.sort_by(|a, b| b.size_bytes.cmp(&a.size_bytes));
+        files.sort_by_key(|file| std::cmp::Reverse(file.size_bytes));
         Ok(files)
     }
 }
@@ -153,20 +110,4 @@ pub struct RecoveredFile {
     pub name: String,
     pub size_bytes: u64,
     pub extension: String,
-}
-
-/// Parse số file recovered từ PhotoRec output
-fn parse_recovered_count(output: &str) -> Option<u64> {
-    // PhotoRec output dạng: "X files saved"
-    for line in output.lines() {
-        if line.contains("files saved") || line.contains("file(s) saved") {
-            let parts: Vec<&str> = line.split_whitespace().collect();
-            if let Some(num_str) = parts.first() {
-                if let Ok(n) = num_str.parse() {
-                    return Some(n);
-                }
-            }
-        }
-    }
-    None
 }
