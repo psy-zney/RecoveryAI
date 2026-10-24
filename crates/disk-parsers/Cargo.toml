@@ -1,0 +1,15 @@
+[package]
+name = "disk-parsers"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+core-io = { path = "../core-io" }
+zerocopy = { workspace = true }
+bytemuck = { workspace = true }
+memchr = { workspace = true }
+aho-corasick = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }

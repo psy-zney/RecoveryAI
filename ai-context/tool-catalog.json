@@ -1,0 +1,186 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "RecoveryAI MCP Tool Catalog",
+  "description": "Standard JSON-RPC 2.0 tool definitions exposed by RecoveryAI native engine",
+  "tools": [
+    {
+      "name": "list_physical_drives",
+      "description": "Enumerates all connected physical drives, USB flash drives, and external disk enclosures. Identifies drive numbers, models, bus types (USB/SCSI/NVMe), and highlights external disks suitable for recovery.",
+      "parameters": {
+        "type": "object",
+        "properties": {}
+      },
+      "returns": {
+        "drives_count": "number",
+        "drives": "array of { device_id, drive_number, target_path, model, interface_type, media_type, size_bytes, size_formatted, is_external, recommendation }",
+        "connection_options_for_broken_laptop": "object"
+      }
+    },
+    {
+      "name": "open_recovery_session",
+      "description": "Opens a forensic recovery session for a physical disk (\\\\.\\PhysicalDriveX) or raw disk image (.img, .dd). Enforces 100% read-only access and initializes in-memory virtual overlay.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Target disk path. Example: '\\\\.\\PhysicalDrive1' or 'C:/data/corrupted_disk.img'"
+          }
+        },
+        "required": ["path"]
+      },
+      "returns": {
+        "session_id": "string (UUID)",
+        "path": "string",
+        "total_sectors": "number (int64)",
+        "sector_size": "number (default 512)",
+        "is_read_only": "boolean (always true)",
+        "bad_sectors_count": "number"
+      }
+    },
+    {
+      "name": "scan_disk_topology",
+      "description": "Scans LBA 0..33 for MBR/GPT partition tables and scans backup GPT header at the end of the disk.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "session_id": { "type": "string" }
+        },
+        "required": ["session_id"]
+      },
+      "returns": {
+        "mbr_valid": "boolean",
+        "gpt_valid": "boolean",
+        "backup_gpt_status": "string ('VALID', 'CORRUPTED', or 'MISSING')",
+        "partitions": "array of { index, partition_type, start_lba, end_lba, total_sectors, filesystem_hint }"
+      }
+    },
+    {
+      "name": "inspect_sector_structure",
+      "description": "Inspects raw hex/ASCII content and Shannon entropy of specified sector range. Highlights known magic signatures (0x55AA, NTFS, FAT32, etc.).",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "session_id": { "type": "string" },
+          "lba": { "type": "integer", "minimum": 0 },
+          "count": { "type": "integer", "minimum": 1, "maximum": 64, "default": 1 }
+        },
+        "required": ["session_id", "lba"]
+      },
+      "returns": {
+        "lba": "number",
+        "count": "number",
+        "entropy": "number (0.0 to 8.0)",
+        "detected_signatures": "array of string",
+        "hex_preview": "string",
+        "ascii_preview": "string"
+      }
+    },
+    {
+      "name": "scan_filesystem_journals",
+      "description": "Deep parses filesystem metadata (NTFS $MFT, $UsnJrnl, $LogFile or FAT32/exFAT FAT table and root directories) to discover deleted files and unallocated clusters.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "session_id": { "type": "string" },
+          "partition_start_lba": { "type": "integer" }
+        },
+        "required": ["session_id", "partition_start_lba"]
+      },
+      "returns": {
+        "filesystem": "string ('NTFS', 'FAT32', 'exFAT')",
+        "total_records_scanned": "number",
+        "deleted_records_found": "number",
+        "journal_events_count": "number",
+        "recoverable_files": "array of { id, name, size, parent_path, is_contiguous, allocated }"
+      }
+    },
+    {
+      "name": "start_async_disk_job",
+      "description": "Starts a long-running background forensic job (SIMD magic carver, fragment prefilter, or ddrescue clone). Returns job_id immediately for polling.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "session_id": { "type": "string" },
+          "job_type": {
+            "type": "string",
+            "enum": ["SIMD_VBR_HUNT", "SIMD_MAGIC_CARVE", "FRAGMENT_PREFILTER", "DD_RESCUE_CLONE"]
+          },
+          "params": {
+            "type": "object",
+            "description": "Job specific parameters (e.g. target_file_types, start_lba, end_lba, destination_image)"
+          }
+        },
+        "required": ["session_id", "job_type"]
+      },
+      "returns": {
+        "job_id": "string (UUID)",
+        "status": "string ('RUNNING')",
+        "estimated_sectors": "number"
+      }
+    },
+    {
+      "name": "poll_async_job",
+      "description": "Polls the status, progress percentage, and results of an ongoing background forensic job.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "session_id": { "type": "string" },
+          "job_id": { "type": "string" }
+        },
+        "required": ["session_id", "job_id"]
+      },
+      "returns": {
+        "job_id": "string",
+        "status": "string ('RUNNING', 'COMPLETED', 'FAILED')",
+        "progress_percent": "number (0.0 to 100.0)",
+        "sectors_processed": "number",
+        "items_found": "number",
+        "results": "array or object"
+      }
+    },
+    {
+      "name": "virtual_patch_and_verify",
+      "description": "Applies an in-memory hex patch to the RAM Copy-on-Write overlay and verifies if filesystems/partitions can now mount or parse cleanly. ZERO physical disk modification.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "session_id": { "type": "string" },
+          "lba": { "type": "integer" },
+          "patch_hex": { "type": "string", "description": "Hexadecimal string representing the replacement sector data" }
+        },
+        "required": ["session_id", "lba", "patch_hex"]
+      },
+      "returns": {
+        "patch_applied_in_ram": "boolean (true)",
+        "target_lba": "number",
+        "overlay_memory_used_kb": "number",
+        "verification_status": "string ('MOUNTABLE', 'VALID_SIGNATURE', 'CORRUPTED')",
+        "detected_filesystem": "string"
+      }
+    },
+    {
+      "name": "extract_recovered_data",
+      "description": "Extracts recovered files, partitions, or carved cluster streams to a secure physical destination directory on a different volume.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "session_id": { "type": "string" },
+          "source_type": {
+            "type": "string",
+            "enum": ["TSK_TREE_EXTRACT", "CARVE_BY_LBA_RANGES", "PARTITION_IMAGE_EXPORT"]
+          },
+          "target_dir": { "type": "string" },
+          "file_ids_or_ranges": { "type": "array" }
+        },
+        "required": ["session_id", "source_type", "target_dir"]
+      },
+      "returns": {
+        "success": "boolean",
+        "files_extracted": "number",
+        "bytes_written": "number",
+        "destination_folder": "string"
+      }
+    }
+  ]
+}

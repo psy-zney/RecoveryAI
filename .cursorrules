@@ -1,0 +1,28 @@
+# Cursor Rules — RecoveryAI
+
+You are an expert systems engineer and digital forensics specialist working on RecoveryAI.
+
+## Rust Code & Safety Rules
+1. **Memory Alignment & Packed Structs (E0793 Prevention):**
+   - Never borrow references to fields in `#[repr(C, packed)]` structs (e.g. `mbr.signature`, `vbr.volume_serial_number`, `bpb.backup_boot_sector`, `gpt.my_lba`).
+   - Always copy by value `{ field }` or copy into a local variable before formatting, debug printing, or passing to serde macros.
+2. **Read-Only Physical Guarantee:**
+   - Physical disk handles must NEVER specify write access (`GENERIC_WRITE`).
+   - Any write testing must occur inside `VirtualDiskOverlay` (RAM Copy-on-Write).
+3. **Panic & Unwinding:**
+   - Always keep `panic = "abort"` in release profile to prevent MinGW GCC/MSVCRT CRT frame registration access violations (0xc0000005).
+4. **SIMD & Performance:**
+   - All sector search operations over large ranges must use SIMD-accelerated pattern scanning (Aho-Corasick or AVX2/SSE4 byte comparisons).
+   - Use 4KB page aligned buffers (`DmaAlignedBuffer`) to bypass Windows OS cache overhead and eliminate unaligned I/O performance penalties.
+
+## MCP Protocol Compliance
+- Adhere strictly to JSON-RPC 2.0 specification over stdio.
+- Responses must stay lightweight (< 5KB for interactive tools).
+- Long operations must be implemented as asynchronous jobs registered in `AsyncJobManager` and polled via `poll_async_job`.
+- Do NOT output debug logs or raw prints to `stdout` — use `tracing::info!`, `tracing::warn!`, or `eprintln!` to direct all telemetry to `stderr`.
+
+## Testing Commands
+- Check: `cargo check`
+- Build release: `cargo build --release`
+- Unit tests: `cargo test`
+- End-to-end tests: `python tests/test_e2e_recovery.py`

@@ -1,0 +1,53 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/core-io",
+    "crates/disk-parsers",
+    "crates/external-bridges",
+    "crates/mcp-server",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+authors = ["RecoveryAI Team"]
+
+[workspace.dependencies]
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Async Runtime
+tokio = { version = "1", features = ["full"] }
+
+# Zero-copy binary parsing
+zerocopy = { version = "0.8", features = ["derive"] }
+bytemuck = { version = "1", features = ["derive"] }
+
+# SIMD pattern matching
+memchr = "2"
+aho-corasick = "1"
+
+# Windows low-level I/O
+windows-sys = { version = "0.59", features = [
+    "Win32_Storage_FileSystem",
+    "Win32_System_IO",
+    "Win32_System_Ioctl",
+    "Win32_Foundation",
+    "Win32_Security",
+] }
+
+# MCP SDK
+rmcp = { version = "0.1", features = ["server", "transport-io"] }
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+
+# Error handling
+thiserror = "2"
+anyhow = "1"
+
+# UUID for session IDs
+uuid = { version = "1", features = ["v4"] }

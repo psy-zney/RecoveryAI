@@ -1,0 +1,18 @@
+[package]
+name = "mcp-server"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+core-io = { path = "../core-io" }
+disk-parsers = { path = "../disk-parsers" }
+external-bridges = { path = "../external-bridges" }
+rmcp = { workspace = true }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+anyhow = { workspace = true }
+uuid = { workspace = true }

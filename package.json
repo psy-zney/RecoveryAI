@@ -1,0 +1,42 @@
+{
+  "name": "recoveryai-mcp",
+  "version": "1.0.0",
+  "description": "Production-grade MCP Server & Forensic Engine for AI-assisted Disk and Filesystem Recovery",
+  "main": "bin/recoveryai-mcp.js",
+  "bin": {
+    "recoveryai-mcp": "./bin/recoveryai-mcp.js"
+  },
+  "type": "commonjs",
+  "files": [
+    "bin/",
+    "README.md",
+    "AGENTS.md",
+    "mcp_config.json"
+  ],
+  "scripts": {
+    "start": "node ./bin/recoveryai-mcp.js",
+    "inspect": "npx @modelcontextprotocol/inspector node ./bin/recoveryai-mcp.js",
+    "build:rust": "cargo build --release",
+    "test:e2e": "python tests/test_e2e_recovery.py"
+  },
+  "keywords": [
+    "mcp",
+    "modelcontextprotocol",
+    "mcp-server",
+    "data-recovery",
+    "disk-forensics",
+    "ntfs",
+    "fat32",
+    "exfat",
+    "simd",
+    "rust",
+    "ai-agent",
+    "claude",
+    "cursor"
+  ],
+  "author": "RecoveryAI Core Team",
+  "license": "Apache-2.0",
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
