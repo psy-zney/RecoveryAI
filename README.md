@@ -6,6 +6,7 @@
 [![Rust](https://img.shields.io/badge/Built_with-Rust_&_SIMD-orange?logo=rust)](https://www.rust-lang.org/)
 [![MCP](https://img.shields.io/badge/Protocol-MCP_(JSON--RPC)-blue)](https://modelcontextprotocol.io/)
 [![Safety](https://img.shields.io/badge/Physical_I/O-100%25_Read--Only-brightgreen)](#safety-architecture-in-memory-virtual-overlay)
+[![CI & Forensic Validation](https://github.com/psy-zney/RecoveryAI/actions/workflows/ci.yml/badge.svg)](https://github.com/psy-zney/RecoveryAI/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 
 *Turn Claude, Cursor, or Gemini into a Digital Forensics & Data Recovery Specialist — without ever writing a single byte to your damaged drive.*
