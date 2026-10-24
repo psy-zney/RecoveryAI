@@ -20,3 +20,8 @@ tests/sample_corrupted_images/*.img
 *.swo
 .DS_Store
 Thumbs.db
+
+# Temporary agent logs & conversation dumps
+gemini-code-*.md
+*.tmp
+
