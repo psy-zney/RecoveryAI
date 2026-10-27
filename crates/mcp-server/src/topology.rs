@@ -50,6 +50,11 @@ pub fn read_layout<R: RawStorageReader>(
         (1, capacity.saturating_sub(1)),
         (capacity.saturating_sub(1), 1),
     ] {
+        if lba >= capacity {
+            anomalies.push(format!("GPT LBA {lba}: outside source capacity"));
+            headers.push(None);
+            continue;
+        }
         let result = read_gpt(disk, lba, expected_alternate, sector_size);
         match result {
             Ok((header, entries)) => headers.push(Some((header, entries))),

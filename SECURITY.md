@@ -34,6 +34,6 @@ damaged device. Preserve independently verified acquisitions and validate export
 
 ## 🛡️ Reporting a Vulnerability
 
-If you discover any security issue, potential data safety violation, or memory unsafety bug in RecoveryAI:
+If you discover any security issue, potential data safety violation, or memory unsafety bug in resc:
 - Please report it responsibly via GitHub Security Advisories or email: `lequangkhanh295@gmail.com`.
 - We aim to acknowledge reports within 24 hours and patch critical security defects within 72 hours.

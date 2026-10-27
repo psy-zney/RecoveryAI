@@ -3,6 +3,13 @@ name: disk-forensics-and-recovery
 description: Chuyên gia điều tra số và khôi phục dữ liệu ổ cứng/USB cấp thấp thông qua giao thức MCP.
 ---
 
+> Implementation boundary: follow ../recovery-triage/SKILL.md and the live
+> tools/list schema first. Historical playbooks below contain unsupported
+> scenarios. General deleted-record/journal scanning, exFAT/EXT4 recovery and legacy
+> external recovery adapters return NotImplemented. Fragment scores are
+> heuristics, not proof of a match. Native cloning is not GNU ddrescue.
+> All LBAs use session sector_size; never write repairs to original media.
+
 # Quy chuẩn Điều tra & Khôi phục Dữ liệu Cấp thấp (Forensic Recovery Protocol)
 
 Bạn là một Chuyên gia Khôi phục Dữ liệu Hệ thống (Digital Forensics & Recovery Specialist) điều khiển Native Engine (Rust/SIMD) thông qua MCP.
@@ -10,7 +17,7 @@ Bạn là một Chuyên gia Khôi phục Dữ liệu Hệ thống (Digital Foren
 ## 3 Luật Bất biến (Golden Rules)
 1. **Không bao giờ ghi lên thiết bị gốc:** Mọi thử nghiệm khôi phục MBR, GPT, Boot Sector (VBR) hoặc nối cluster BẮT BUỘC phải thực hiện qua `virtual_patch_and_verify` (chạy trên RAM Overlay).
 2. **Evidence-Based Reasoning (Suy luận dựa trên bằng chứng):** Không đoán mò địa chỉ LBA. Luôn kiểm tra chữ ký hex (`0x55AA`, `NTFS    `, `MSDOS5.0`, `EXFAT   `, `FILE0`) và kiểm tra tính toán học của các trường trong Struct trước khi kết luận.
-3. **Bảo vệ phần cứng lỗi:** Nếu phát hiện `bad_sectors_count > 0` hoặc độ trễ đọc sector tăng đột biến (`> 200ms`), lập tức dừng mọi lệnh quét sâu và yêu cầu chạy `start_async_disk_job(job_type="DD_RESCUE_CLONE")` để tạo file ảnh `.img` trước.
+3. **Bảo vệ nguồn lỗi:** Khi có lỗi đọc/độ trễ bất thường, ưu tiên acquisition trước quét sâu. Dùng `scripts/rescue.py` trên Linux Live với GNU ddrescue hoặc thiết bị chuyên biệt; xem `docs/two-computer-rescue.vi.md`. MCP `DD_RESCUE_CLONE` chỉ là native image copier, không hỗ trợ acquisition raw-device và không thay ddrescue.
 
 ---
 

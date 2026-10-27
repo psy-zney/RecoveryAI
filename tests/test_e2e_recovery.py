@@ -15,7 +15,7 @@ sys.dont_write_bytecode = True
 from synthetic_filesystems import create_ntfs, create_fat32, create_gpt
 from create_sample_images import create_mbr_partition_table, create_ntfs_vbr
 
-MCP_BINARY = os.environ.get("RECOVERYAI_MCP_BIN", str(Path(__file__).resolve().parents[1] / "target" / "release" / ("mcp-server.exe" if os.name == "nt" else "mcp-server")))
+MCP_BINARY = os.environ.get("RESC_MCP_BIN") or os.environ.get("RECOVERYAI_MCP_BIN") or str(Path(__file__).resolve().parents[1] / "target" / "release" / ("mcp-server.exe" if os.name == "nt" else "mcp-server"))
 
 def digest(path):
     with path.open("rb") as stream:
@@ -79,6 +79,7 @@ class McpClient:
             self.process.stdin.close()
             self.process.wait(timeout=5)
         self.reader.join(timeout=1)
+        self.process.stdout.close()
 
 
 def run_all_e2e_tests():

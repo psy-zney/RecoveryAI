@@ -3,6 +3,7 @@ use crate::{handlers::RecoverySession, job_manager::JobManager};
 use anyhow::{ensure, Context, Result};
 use serde::Deserialize;
 use serde_json::{json, Value};
+use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
 use std::sync::{
     atomic::{AtomicBool, AtomicU64, Ordering},
@@ -36,6 +37,12 @@ struct Range {
 #[serde(deny_unknown_fields)]
 struct Carve {
     ranges: Vec<Range>,
+    filename: Option<String>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ByteCarve {
+    ranges: Vec<crate::byte_view::ByteRange>,
     filename: Option<String>,
 }
 #[derive(Deserialize)]
@@ -137,6 +144,64 @@ pub fn run(
             result["status"] = json!("extracted");
             result["mode"] = json!("CARVE_BY_LBA_RANGES");
             result["total_bytes_recovered"] = json!(total);
+            Ok(result)
+        }
+        "CARVE_BY_BYTE_RANGES" => {
+            let config: ByteCarve =
+                serde_json::from_value(request.params.context("Missing byte ranges")?)?;
+            let capacity = session.total_sectors * session.sector_size as u64;
+            let total = crate::byte_view::validate(&config.ranges, capacity)?;
+            let (context, revision) = {
+                let disk = session.lock_for_job(progress.cancel)?;
+                (
+                    crate::manifest::AuditContext::from_disk(&disk, &session.target_path),
+                    disk.revision(),
+                )
+            };
+            let mut output = crate::manifest::AuditedOutput::new(
+                &context,
+                Path::new(&request.output_dir),
+                config.filename.as_deref().unwrap_or("recovered_file.bin"),
+            )?;
+            let mut provenance = Vec::new();
+            let mut written = 0u64;
+            let mut buffer = vec![0; 65536];
+            for range in config.ranges {
+                provenance.push(crate::manifest::SourceRange::new(
+                    written,
+                    range.source_byte_offset,
+                    range.length_bytes,
+                    session.sector_size as usize,
+                ));
+                let mut offset = range.source_byte_offset;
+                let end = offset + range.length_bytes;
+                while offset < end {
+                    progress.check()?;
+                    let count = (end - offset).min(buffer.len() as u64) as usize;
+                    {
+                        let mut disk = session.lock_for_job(progress.cancel)?;
+                        ensure!(
+                            disk.revision() == revision,
+                            "Overlay changed during extraction"
+                        );
+                        let mut operation = disk.operation(Arc::clone(progress.cancel));
+                        operation.seek(SeekFrom::Start(offset))?;
+                        operation.read_exact(&mut buffer[..count])?;
+                    }
+                    progress.check()?;
+                    output.write(&buffer[..count])?;
+                    progress.written(count as u64);
+                    offset += count as u64;
+                }
+                written += range.length_bytes;
+            }
+            progress.check()?;
+            output.update_bad_sectors(&session.lock_for_job(progress.cancel)?.bad_sector_ranges());
+            let mut result = output.finish(provenance)?;
+            result["status"] = json!("extracted");
+            result["mode"] = json!("CARVE_BY_BYTE_RANGES");
+            result["total_bytes_recovered"] = json!(total);
+            result["format_validated"] = json!(false);
             Ok(result)
         }
         "TSK_TREE_EXTRACT" => {

@@ -17,7 +17,7 @@
     "bin/",
     "README.md",
     "AGENTS.md",
-    "mcp_config.json",
+    "mcp_config.example.json",
     "docs/engine-capabilities.md",
     "SECURITY.md"
   ],
@@ -42,7 +42,7 @@
     "claude",
     "cursor"
   ],
-  "author": "RecoveryAI Core Team",
+  "author": "resc contributors",
   "license": "Apache-2.0",
   "engines": {
     "node": ">=18.0.0"

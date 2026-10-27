@@ -3,6 +3,33 @@
 The live `tools/list` schema and this document describe the implemented engine.
 Older architectural examples and forensic playbooks may describe unsupported work.
 
+## Linux Live and two-computer acquisition CLI
+
+`scripts/rescue.py` is a separate stdlib acquisition CLI, not an MCP endpoint.
+It inventories Linux devices through lsblk, verifies source/destination backing
+with sysfs (including partitions/dm/md), rejects mounted/swap source backing,
+and uses external GNU ddrescue for fast/retry passes and explicit mapfile resume.
+Block inputs are opened read-only; output is a new private case on a separate
+known local backing disk. Unknown backing (including common network/overlay
+filesystems), unsupported virtual devices and ambiguous geometry fail closed.
+The output image starts as sparse zeros; unresolved bytes retain unknown status
+in rescue.map. Source identity checks are metadata checks, not hardware attestation.
+
+Sealing hashes acquired image/map and prevents subsequent acquisition into that
+case. SSH control uses keys and strict host-key checking; resumable transfer of
+sealed artifacts verifies full SHA-256 before publication. SSH remote acquisition
+stages the image on a healthy disk attached to the source computer. Direct remote
+block acquisition into the helper computer is not implemented. A bundle command
+copies the toolkit for an existing Linux Live USB; it does not create a boot ISO.
+Windows/macOS remain supported for image recovery, not this Linux acquisition CLI.
+See [the connection/setup guide](two-computer-rescue.vi.md).
+
+`recovery.py triage --acquisition-manifest sealed.json|received.json` verifies the
+image/map hashes and includes acquisition status/unresolved bytes. This does not
+import ddrescue map ranges into the native MCP bad-sector map. Preserve both
+acquisition and recovery manifests. The historical Rust external adapters and
+raw-device export guards described below remain unchanged.
+
 ## Addressing and read-only access
 
 Every MCP LBA uses the session's logical `sector_size`: **512 or 4096 bytes**.
@@ -144,7 +171,7 @@ Tool responses, including the JSON-RPC envelope, remain under 5 KB. `tools/list`
 is a capability catalog and can exceed this budget. Input lines are limited to
 256 KiB; notifications receive no response and unknown arguments are rejected.
 The launcher runs only an existing local binary; unverified automatic downloads
-are disabled. Journal/deleted-record scanning, exFAT/EXT4 recovery, old inode and
+are disabled. Journal/NTFS-deleted-record scanning, exFAT/EXT4 recovery, old inode and
 PhotoRec aliases, and unsafe legacy subprocess adapters return `NotImplemented`.
 Fragment scores are heuristics, not calibrated probabilities or format validation.
 
@@ -165,7 +192,71 @@ overlay read/seek/patch operations; extended libFuzzer campaigns are separate wo
 The E2E suite checks synthetic NTFS/FAT/GPT recovery, source hashes, manifest
 hashes and extents, cross-chunk signatures, clone/map output, pagination, 4Kn WAL
 replay after restart, and cancellation of a large extraction over stdio. Set
-`RECOVERYAI_MCP_BIN` to select a freshly built binary.
+`RESC_MCP_BIN` to select a freshly built binary; `RECOVERYAI_MCP_BIN` remains a
+fallback for existing configurations.
 
 Synthetic tests do not certify failing real hardware or every corrupted image.
 Validate acquisitions and exported formats independently before using evidence.
+
+
+## General triage and MP4/MOV byte reconstruction
+
+`diagnose_recovery` samples boot structures, identifies MBR/GPT and NTFS/FAT32
+candidates, recognizes exFAT/BitLocker markers and proposes multiple recovery
+routes. It does not patch anything, diagnose hardware or infer encryption/TRIM
+from entropy. The sampled locations and partition truncation are explicit.
+
+`ISO_BMFF_BOX_SCAN` is an asynchronous streaming search for plausible
+ftyp/moov/mdat/moof headers. It carries cross-chunk signatures, reads 32/64-bit
+sizes, rejects headers smaller than their fields and reports declared length and
+whether it fits the scan range. False signatures and unrelated boxes remain
+possible. Size 0 is an unknown-to-end candidate, not an inferred file length.
+
+`analyze_video_candidate` reads an ordered, non-overlapping plan of byte ranges
+without exporting it. It checks box bounds, bounded container nesting and
+stco/co64 chunk starts against mdat payloads. It supports 32/64-bit box lengths
+and size 0 within the supplied view. It skips large media payloads by seeking.
+Budgets: 4096 boxes, depth 12 and 65536 offsets. `STRUCTURE_CONSISTENT` is not
+sample-extent verification, codec decoding, fragment-content identity or proof of
+complete recovery. Fragmented MP4 is explicitly deferred to an external demuxer.
+
+`CARVE_BY_BYTE_RANGES` accepts params `{ranges: [{source_byte_offset,
+length_bytes}], filename?}`. It copies 1..4096 non-overlapping source extents in
+output order, without requiring sector alignment. Source bounds/overflow checks,
+overlay revision checks, cancellation, output guards and provenance manifests
+apply. It does not guess fragment order or validate the exported format.
+
+The Python workbench integrates optional local FFmpeg/ffprobe for MOV/MP4 demux
+and full audio/video decode checks of exported candidates. This is CLI-level
+verification, not an MCP subprocess tool or automatic codec repair. FFmpeg is
+not bundled. See [the guide](recovery-guide.vi.md) and [licenses/provenance](open-source-engines.md).
+
+
+## Independently researched three-case integration
+
+The shared case IDs are PARTITION_BOOT, DELETED_METADATA and FRAGMENTS_CONTENT.
+`diagnose_recovery` reports all three without forcing one failure hypothesis.
+`analyze_partition_recovery` returns primary/backup GPT and NTFS/FAT32 evidence,
+geometry/identity caveats and overlay-only proposals. GPT repair regenerates
+location-dependent header fields and CRC; it never copies a backup header blindly.
+Analysis does not apply repairs. See the case-1 research report for NTFS backup
+location nuances and bounded hypotheses when volume boundaries are unknown.
+
+`FAT32_DELETED_SCAN` accepts partition_start_lba and optional max_clusters (1..4096,
+default 256). It scans deleted short entries in the FAT32 root directory, checks
+FAT geometry, cycles, mirrors/active FAT and live root references, and spools hits
+for pagination. Only one-cluster FAT-free candidates from a complete root scan
+may include a byte export plan. Names are incomplete and content is unverified;
+allocated, conflicting and unknown multi-cluster extents are not guessed. The
+job holds the overlay while scanning; polling/cancellation remains independent.
+Other inspection/patch calls can return busy. It does not implement journals,
+NTFS undelete, subdirectory/LFN reconstruction or general deleted-chain recovery.
+
+`analyze_file_candidate` validates ordered byte views for JPEG, PNG or MP4/MOV.
+PNG validates chunk CRC/order and an IEND terminator; JPEG validates marker/segment
+layout, table references and scan markers through EOI. Structure consistency is
+not pixel decode or proof of correct fragment content. JPEG/PNG budgets are
+64 MiB read, 16384 PNG chunks and 65536 JPEG markers. Unknown features, truncation
+and budgets are distinct outcomes. MP4/MOV retains the ISO BMFF analyzer limits.
+
+See [three-case guide](three-cases.vi.md) and independent reports under research/.

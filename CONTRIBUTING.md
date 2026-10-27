@@ -1,4 +1,4 @@
-# Contributing to RecoveryAI 🛡️
+# Contributing to resc 🛡️
 
 We welcome contributions from digital forensics specialists, systems engineers, and AI developers!
 
@@ -18,17 +18,16 @@ We welcome contributions from digital forensics specialists, systems engineers, 
 ## 🛠️ Development Workflow
 
 ### 1. Prerequisites
-- Rust (stable toolchain: `x86_64-pc-windows-gnu` or `x86_64-pc-windows-msvc`)
+- Rust current stable (Linux native or Windows MSVC toolchain)
 - Node.js (>= 18.0.0)
-- Python 3.10+ (for synthetic corrupted image tests)
+- Python 3.11+ (for synthetic corrupted image tests)
 
 ### 2. Building
 ```bash
 # Build native binary
 cargo build --release
 
-# Note: On GNU MinGW toolchain, ensure panic=abort is set:
-$env:RUSTFLAGS="-C panic=abort"; cargo build --release
+# Keep the workspace panic=unwind profile; abort builds are rejected by the server.
 ```
 
 ### 3. Running Tests
@@ -44,3 +43,5 @@ python tests/test_e2e_recovery.py
 - **No Unaligned Packed References (E0793):** Never borrow references to fields in `#[repr(C, packed)]` structs. Always evaluate by value `{ field }` or copy into a local variable before formatting.
 - **DMA Alignment:** Always use `DmaAlignedBuffer` (4096-byte page aligned) for Direct I/O.
 - **Error Handling:** Use `anyhow::Result` in applications and `thiserror` in core libraries.
+
+See [the recovery workbench guide](docs/recovery-guide.vi.md) for setup, source selection, deep diagnostics, byte reconstruction and FFmpeg validation.

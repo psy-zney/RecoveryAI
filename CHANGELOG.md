@@ -1,13 +1,52 @@
+# Linux Live and two-computer rescue (2026-10-27)
+
+- Add Linux inventory and guarded GNU ddrescue acquisition with explicit fast,
+  retry, resume, source identity, map coverage and sealed image/map SHA-256.
+- Add strict-key SSH control and resumable verified transfer of staged sealed
+  acquisitions; bundle toolkit files for an existing Linux Live USB.
+- Preserve acquisition unknown-region evidence in image triage; document staging
+  storage, hardware and unsupported workflows precisely.
+- Correct unsafe historical laptop guidance and test interruption, resume,
+  physical-isolation guards, map errors and real ddrescue on synthetic images.
+
+# Three-case integration (2026-10-26)
+
+- Three independent agents researched and implemented partition/boot proposals,
+  FAT32 deleted-root-entry evidence, and JPEG/PNG content boundaries/validation.
+- Added analyze_partition_recovery, analyze_file_candidate and the asynchronous
+  FAT32_DELETED_SCAN job; unified case IDs, sessions, byte plans and provenance.
+- Extended CLI with analyze-partition, deleted-scan and analyze-file; full-image
+  deep triage also scans detected FAT32 roots with explicit limits.
+- Added independent research reports and cross-case synthetic regressions,
+  including overlay boot repair -> deleted extent -> PNG validation -> exact export.
+- Add a reproducible bounded-fragment/video counterexample study showing ambiguity,
+  unsupported three-fragment search, and decode-success with wrong video content.
+
+# Recovery workbench upgrade (2026-10-26)
+
+- Add a Vietnamese installation/source-selection/recovery guide and portable MCP
+  configuration generation; correct obsolete panic flags and capability claims.
+- Add general read-only MCP triage, bounded MP4/MOV candidate inspection, streaming
+  ISO BMFF box discovery and ordered exact-byte fragmented exports with provenance.
+- Add a Python CLI for multi-route diagnostics, scans, tree extraction, image clone,
+  reconstruction plans and independent optional FFmpeg/ffprobe verification.
+- Add regressions for malicious plans, cross-chunk boxes, reordered unaligned
+  fragments, CLI workflows and a real reconstructed video's full decode.
+- Retain explicit limitations: no arbitrary fragment-order inference, missing-moov
+  regeneration, deleted-record recovery or newly enabled external recovery adapters.
+
 # Changelog
 
-All notable changes to **RecoveryAI** will be documented in this file.
+All notable changes to **resc** will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
-## [1.0.0] - 2026-10-25
+## [Unreleased]
+
+The npm package declares version 1.0.0 independently of the Rust workspace (0.1.0). The entries below describe project work, not a verified Git release.
 
 ### Added
 - **Core Native Engine (Rust):**
@@ -21,7 +60,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - SIMD Aho-Corasick scanner (`ScannerEngine`) for rapid multi-signature file carving at GB/s.
   - Boundary Coherence mathematical matcher for fragmented media.
 - **MCP Server & Protocol (JSON-RPC 2.0 stdio):**
-  - Full implementation of 9 MCP tools + legacy aliases.
+  - MCP tool catalog and legacy aliases; see `docs/engine-capabilities.md` for current limitations.
   - Background asynchronous task scheduler (`AsyncJobManager`) for non-blocking carving.
   - Direct physical disk enumeration tool (`list_physical_drives`).
 - **Autonomous AI Skills (`.agents/skills/`):**
@@ -30,6 +69,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `file-carving-and-defrag` with boundary coherence and atom reconstruction.
   - `mcp-disk-automation` with non-blocking polling and overlay budget management.
 - **NPX Launcher & GitHub Distribution:**
-  - Cross-platform `recoveryai-mcp` Node.js launcher with auto-download capability.
+  - Cross-platform Node.js launcher; automatic unverified binary downloads are disabled.
   - Automated GitHub Actions CI/CD workflows for Windows builds and releases.
-  - Full end-to-end synthetic test suite (`tests/test_e2e_recovery.py`) passing 5/5 scenarios 100%.
+  - End-to-end synthetic test suite (`tests/test_e2e_recovery.py`).

@@ -303,7 +303,28 @@ pub struct StreamingScanner {
 }
 impl StreamingScanner {
     pub fn new() -> std::io::Result<Self> {
-        let engine = ScannerEngine::new()?;
+        Self::with_engine(ScannerEngine::new()?)
+    }
+    pub fn video_boxes() -> std::io::Result<Self> {
+        let signatures = [b"ftyp", b"moov", b"mdat", b"moof"]
+            .into_iter()
+            .map(|magic| FileSignature {
+                name: match magic {
+                    b"ftyp" => "ftyp",
+                    b"moov" => "moov",
+                    b"mdat" => "mdat",
+                    _ => "moof",
+                },
+                extension: "mp4",
+                magic,
+                offset: 4,
+                min_size: 8,
+                typical_max_size: 0,
+            })
+            .collect();
+        Self::with_engine(ScannerEngine::with_signatures(signatures)?)
+    }
+    fn with_engine(engine: ScannerEngine) -> std::io::Result<Self> {
         let overlap = engine
             .signatures
             .iter()

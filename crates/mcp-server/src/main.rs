@@ -1,6 +1,9 @@
 //! Read-only disk forensics MCP server with native RAM-overlay filesystem access.
 //! `tools/list` describes implemented capabilities and explicit unsupported features.
 
+mod byte_view;
+mod deleted_recovery;
+mod diagnostics;
 mod extraction;
 mod handlers;
 mod hit_store;
@@ -8,6 +11,7 @@ mod job_manager;
 mod jobs;
 mod manifest;
 mod native_fs;
+mod partition_recovery;
 mod safe_output;
 mod session_store;
 mod tools_schema;

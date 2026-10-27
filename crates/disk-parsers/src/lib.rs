@@ -9,8 +9,10 @@
 //! - **simd_scanner**: Quét chữ ký file GB/s bằng Aho-Corasick + SIMD
 //! - **fragment_matcher**: Đo độ khớp biên nối mảnh file bị phân mảnh
 
+pub mod content_validation;
 pub mod fat_parser;
 pub mod fragment_matcher;
+pub mod iso_bmff;
 pub mod mbr_gpt;
 pub mod ntfs_parser;
 pub mod simd_scanner;
@@ -61,6 +63,8 @@ mod malformed_input_tests {
                 super::mbr_gpt::GptHeader::from_sector(&bytes);
                 super::ntfs_parser::analyze_ntfs_vbr(&bytes);
                 super::fat_parser::analyze_fat32(&bytes);
+                super::iso_bmff::analyze(&mut std::io::Cursor::new(&bytes), bytes.len() as u64)
+                    .ok();
             });
             assert!(
                 outcome.is_ok(),

@@ -54,9 +54,34 @@ struct CloneParams {
     mapfile: Option<String>,
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DeletedParams {
+    partition_start_lba: u64,
+    max_clusters: Option<u64>,
+}
+impl DeletedParams {
+    fn validate(&self, total: u64) -> Result<u64> {
+        let budget = self.max_clusters.unwrap_or(256);
+        ensure!(
+            self.partition_start_lba < total,
+            "Partition is outside source"
+        );
+        ensure!(
+            (1..=4096).contains(&budget),
+            "max_clusters must be in 1..4096"
+        );
+        Ok(budget)
+    }
+}
+
 pub fn validate_params(kind: &str, params: &Value, session: &RecoverySession) -> Result<()> {
     match kind {
-        "SIMD_MAGIC_CARVE" | "SIMD_VBR_HUNT" => {
+        "FAT32_DELETED_SCAN" => {
+            serde_json::from_value::<DeletedParams>(params.clone())?
+                .validate(session.total_sectors)?;
+        }
+        "SIMD_MAGIC_CARVE" | "SIMD_VBR_HUNT" | "ISO_BMFF_BOX_SCAN" => {
             serde_json::from_value::<ScanParams>(params.clone())?.range(session.total_sectors)?;
         }
         "FRAGMENT_PREFILTER" => {
@@ -140,7 +165,8 @@ impl Worker<'_> {
     }
     pub fn run(&self, kind: &str, params: Value) -> Result<Value> {
         match kind {
-            "SIMD_MAGIC_CARVE" | "SIMD_VBR_HUNT" => {
+            "FAT32_DELETED_SCAN" => self.deleted(serde_json::from_value(params)?),
+            "SIMD_MAGIC_CARVE" | "SIMD_VBR_HUNT" | "ISO_BMFF_BOX_SCAN" => {
                 self.scan(kind, serde_json::from_value(params)?)
             }
             "FRAGMENT_PREFILTER" => self.fragments(serde_json::from_value(params)?),
@@ -148,6 +174,36 @@ impl Worker<'_> {
             _ => bail!("NotImplemented: unsupported job type {kind}"),
         }
     }
+    fn deleted(&self, params: DeletedParams) -> Result<Value> {
+        self.check_cancel()?;
+        let budget = params.validate(self.session.total_sectors)?;
+        let mut spool = self.hit_spool()?;
+        let mut disk = self.session.lock_for_job(self.cancel)?;
+        ensure!(
+            disk.revision() == self.revision,
+            "RAM overlay changed during job"
+        );
+        let mut operation = disk.operation(Arc::clone(self.cancel));
+        let mut found = 0;
+        let mut result = crate::deleted_recovery::scan(
+            &mut *operation,
+            params.partition_start_lba,
+            budget,
+            self.cancel,
+            |hit| {
+                self.check_cancel()?;
+                spool.append(hit)?;
+                found += 1;
+                self.manager.progress(self.id, 0, budget, found);
+                Ok(())
+            },
+        )?;
+        self.check_cancel()?;
+        spool.finish()?;
+        result["case_id"] = json!("DELETED_METADATA");
+        Ok(result)
+    }
+
     fn hit_spool(&self) -> Result<crate::hit_store::HitWriter> {
         let path = self
             .session
@@ -160,7 +216,11 @@ impl Worker<'_> {
     fn scan(&self, kind: &str, p: ScanParams) -> Result<Value> {
         let (start, end) = p.range(self.session.total_sectors)?;
         let mut spool = self.hit_spool()?;
-        let mut scanner = StreamingScanner::new()?;
+        let mut scanner = if kind == "ISO_BMFF_BOX_SCAN" {
+            StreamingScanner::video_boxes()?
+        } else {
+            StreamingScanner::new()?
+        };
         let mut hits = 0u64;
         let mut samples = Vec::new();
         let mut types: BTreeMap<String, u64> = BTreeMap::new();
@@ -170,17 +230,54 @@ impl Worker<'_> {
             let count = (end - lba).min(65536 / self.session.sector_size as u64) as usize;
             let bytes = &mut buffer[..count * self.session.sector_size as usize];
             self.read(lba, count, bytes)?;
-            if kind == "SIMD_MAGIC_CARVE" {
+            if matches!(kind, "SIMD_MAGIC_CARVE" | "ISO_BMFF_BOX_SCAN") {
                 for mut hit in scanner.scan_next(bytes, lba * self.session.sector_size as u64)? {
                     hit.lba = hit.byte_offset / self.session.sector_size as u64;
                     if hit.byte_offset < start * self.session.sector_size as u64 {
                         continue;
                     }
-                    spool.append(json!({"lba":hit.lba,"byte_offset":hit.byte_offset,"extension":hit.extension,"signature":hit.file_type}))?;
+                    let mut item = json!({"lba":hit.lba,"byte_offset":hit.byte_offset,"extension":hit.extension,"signature":hit.file_type,"validation":"signature_only"});
+                    if kind == "ISO_BMFF_BOX_SCAN" {
+                        // Read the actual header, including signatures split across chunks.
+                        // A plausible box is still only a candidate, never a recovered file.
+                        use std::io::{Read, Seek, SeekFrom};
+                        let capacity = end * self.session.sector_size as u64;
+                        if capacity - hit.byte_offset < 8 {
+                            continue;
+                        }
+                        let mut header = [0u8; 16];
+                        let mut disk = self.session.lock_for_job(self.cancel)?;
+                        ensure!(
+                            disk.revision() == self.revision,
+                            "RAM overlay changed during job"
+                        );
+                        let mut operation = disk.operation(Arc::clone(self.cancel));
+                        operation.seek(SeekFrom::Start(hit.byte_offset))?;
+                        operation.read_exact(&mut header[..8])?;
+                        let short = u32::from_be_bytes(header[..4].try_into()?);
+                        let (length, header_size) = match short {
+                            0 => (None, 8),
+                            1 if capacity - hit.byte_offset >= 16 => {
+                                operation.read_exact(&mut header[8..])?;
+                                (Some(u64::from_be_bytes(header[8..].try_into()?)), 16)
+                            }
+                            1 => continue,
+                            n => (Some(n as u64), 8),
+                        };
+                        if length.is_some_and(|n| n < header_size) {
+                            continue;
+                        }
+                        item["declared_length_bytes"] = json!(length);
+                        item["fits_scan_range"] =
+                            json!(length.map(|n| n <= capacity - hit.byte_offset));
+                        item["validation"] = json!("plausible_box_header_only");
+                        item["box_type"] = json!(hit.file_type);
+                    }
+                    spool.append(item)?;
                     hits += 1;
                     *types.entry(hit.extension.clone()).or_default() += 1;
                     if samples.len() < 8 {
-                        samples.push(json!({"lba":hit.lba,"byte_offset":hit.byte_offset,"extension":hit.extension}));
+                        samples.push(json!({"lba":hit.lba,"byte_offset":hit.byte_offset,"extension":hit.extension,"signature":hit.file_type}));
                     }
                 }
             } else {
