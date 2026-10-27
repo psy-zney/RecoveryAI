@@ -17,6 +17,9 @@ const isWindows = process.platform === 'win32';
 const binaryName = isWindows ? 'mcp-server.exe' : 'mcp-server';
 
 function findBinary() {
+  if (process.env.RESC_MCP_BIN && fs.existsSync(process.env.RESC_MCP_BIN)) {
+    return process.env.RESC_MCP_BIN;
+  }
   if (process.env.RECOVERYAI_MCP_BIN && fs.existsSync(process.env.RECOVERYAI_MCP_BIN)) {
     return process.env.RECOVERYAI_MCP_BIN;
   }
@@ -42,7 +45,7 @@ function run() {
 
   if (!binaryPath) {
     console.error('[resc] NotImplemented: automatic execution of unverified downloads is disabled.');
-    console.error('Build locally with cargo build --release or set RECOVERYAI_MCP_BIN to a trusted binary.');
+    console.error('Build locally with cargo build --release or set RESC_MCP_BIN to a trusted binary.');
     process.exit(1);
   }
 

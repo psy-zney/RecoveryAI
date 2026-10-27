@@ -229,7 +229,7 @@ def verify_media(path, decode=False, seconds=120):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--binary", default=os.environ.get("RECOVERYAI_MCP_BIN", str(DEFAULT_BINARY)))
+    parser.add_argument("--binary", default=os.environ.get("RESC_MCP_BIN") or os.environ.get("RECOVERYAI_MCP_BIN") or str(DEFAULT_BINARY))
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("doctor", help="Kiểm tra công cụ, không đọc giá trị secrets")
     config = commands.add_parser("mcp-config", help="In JSON MCP đúng đường dẫn máy hiện tại")

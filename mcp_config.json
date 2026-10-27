@@ -1,9 +1,0 @@
-{
-  "mcpServers": {
-    "resc": {
-      "command": "node",
-      "args": ["/absolute/path/to/resc/bin/resc-mcp.js", "--read-only-enforced"],
-      "env": {"RESC_SESSION_ROOT": "/absolute/path/to/persistent-resc-state", "RUST_LOG": "info"}
-    }
-  }
-}

@@ -11,10 +11,10 @@
 
 [![Rust](https://img.shields.io/badge/Built_with-Rust_&_SIMD-orange?logo=rust)](https://www.rust-lang.org/)
 [![MCP](https://img.shields.io/badge/Protocol-MCP_(JSON--RPC)-blue)](https://modelcontextprotocol.io/)
-[![Safety](https://img.shields.io/badge/Physical_I/O-100%25_Read--Only-brightgreen)](#safety-architecture-in-memory-virtual-overlay)
-[![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](./LICENSE)
+[![Safety](https://img.shields.io/badge/Source_I/O-read--only-blue)](#safety-architecture-in-memory-virtual-overlay)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](./LICENSE)
 
-*Turn Claude, Cursor, or Gemini into a Digital Forensics & Data Recovery Specialist — without ever writing a single byte to your damaged drive.*
+*Use an MCP agent to inspect disk images and test recovery patches in a virtual overlay.*
 
 [Architecture](#hybrid-brain--muscle-architecture) • [Safety Guarantee](#safety-architecture-in-memory-virtual-overlay) • [Quick Start](#quick-start) • [MCP Tools](#mcp-tools-catalog) • [Forensic Playbooks](#built-in-forensic-skills--playbooks)
 
@@ -22,8 +22,9 @@
 
 ---
 
-<!-- TODO: Replace with your 45-second terminal + Claude/Cursor split-screen GIF -->
-<!-- ![resc Demo](./assets/demo.gif) -->
+![Illustrated resc recovery workflow](./assets/demo.gif)
+
+This animation is a simulated illustration, not a recorded recovery session. Consult the capability reference for implemented operations.
 
 ## Setup and recovery workbench
 
@@ -87,15 +88,15 @@ When a USB drive or hard disk turns `RAW`, loses its partition table, or suffers
 ┌───────────────────────────────────▼─────────────────────────────────────┐
 │                        resc MCP SERVER (crates/mcp-server)              │
 │  • Async Job Queue (Prevents MCP timeouts on multi-terabyte scans)      │
-│  • Virtual Disk Overlay (BTreeMap<LBA, 512] [u8;> In-Memory Patching)   │
+│  • Virtual Disk Overlay (512/4096-byte sectors and durable WAL)        │
 └───────────────────────────────────▲─────────────────────────────────────┘
                                     │ Rust Internal API / Zero-Copy Structs
 ┌───────────────────────────────────▼─────────────────────────────────────┐
 │                 NATIVE ENGINE (core-io / disk-parsers)                  │
-│  • Layer 0 (Hardware I/O): 4KB-Aligned DMA, 500ms SCSI Watchdog         │
-│  • Layer 1 (SIMD Scanner): AVX2 Magic Bytes & Shannon Entropy Map       │
-│  • Layer 2 (FS Parsers): MBR, GPT, NTFS ($MFT, $I30, $UsnJrnl), FAT32   │
-│  • Layer 3 (Bridges): Bifragment Coherence Matcher + TSK / ddrescue     │
+│  • Layer 0: Read-only image and Windows physical-device I/O            │
+│  • Layer 1: Signature scanning and entropy analysis                    │
+│  • Layer 2: MBR/GPT and native NTFS/FAT validation                    │
+│  • Layer 3: Background image extraction and cloning                    │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -103,26 +104,25 @@ When a USB drive or hard disk turns `RAW`, loses its partition table, or suffers
 
 ## Safety Architecture: In-Memory Virtual Overlay
 
-Allowing an AI Agent to directly modify sectors on a damaged physical drive is dangerous. **`resc` enforces a strict hardware-level Read-Only policy:**
-
-1. **Read-only source access:** Image files and supported Windows physical devices are opened read-only. Linux development uses regular raw images; raw-device export/isolation is not implemented. Output files and WALs are separate writable artifacts.
-2. **Copy-on-Write (CoW) RAM Patching:** When the AI Agent wants to rebuild a destroyed MBR or restore a corrupted NTFS Volume Boot Record (VBR) from its end-of-volume backup, it calls `virtual_patch_and_verify`.
-3. **Native verification:** Patches use the session logical sector size (512/4096), are journaled to a separate WAL and read through the overlay. A successful verification requires native NTFS/FAT root traversal and a valid file entry; it does not certify the whole volume or every file.
+Source media are opened read-only by resc. Virtual patches are applied to an in-memory overlay and recorded in a session WAL; they are never written to the source by resc. This is **not a hardware write blocker**: the OS or another application may still modify shared media. Native NTFS/FAT validation checks root traversal and a file entry; it does not certify the whole filesystem. See [capabilities](docs/engine-capabilities.md) and [SECURITY.md](SECURITY.md) for the boundaries.
 
 ---
 
 ## Quick Start
 
-### 1. Zero-Install via `npx` (MCP Client Configuration)
+### 1. MCP Client Configuration
 
-Add `resc` to your `claude_desktop_config.json` or `.cursor/mcp.json`:
+Copy [mcp_config.example.json](mcp_config.example.json) into your MCP client configuration and replace its placeholders with absolute paths. The launcher requires a locally built or otherwise trusted native binary; it does not download one. It uses `RESC_MCP_BIN`, or the legacy `RECOVERYAI_MCP_BIN` fallback, when set.
+
+If `resc-mcp` is available on npm, the equivalent package-based configuration is:
 
 ```json
 {
   "mcpServers": {
     "resc": {
       "command": "npx",
-      "args": ["-y", "resc-mcp", "--read-only-enforced"]
+      "args": ["-y", "resc-mcp"],
+      "env": { "RESC_MCP_BIN": "<absolute-path-to-trusted-mcp-server-binary>" }
     }
   }
 }
@@ -131,7 +131,7 @@ Add `resc` to your `claude_desktop_config.json` or `.cursor/mcp.json`:
 The npm package is named `resc-mcp`; its `resc`, `resc-mcp` and legacy
 `recoveryai-mcp` commands all use `bin/resc-mcp.js`. To select the `resc` alias
 explicitly, use `npx --package resc-mcp resc`. Bare `npx resc` resolves the npm
-package named `resc` and requires that package to be published separately.
+package named `resc` and requires that package to be published separately. Package publication and release availability must be verified separately; the npm package does not include the native binary.
 
 ### 2. Build from Source (Rust Workspace)
 
@@ -143,15 +143,18 @@ cd resc
 
 # External legacy forensic adapters are currently disabled; no companion downloads are needed.
 
-# Build optimized release binary with AVX2/SIMD enabled
-cargo build --release
+# Build the release binary
+cargo build --release --locked
 
 # Run disposable synthetic corruption / reconstruction tests
 python ./tests/test_e2e_recovery.py
 python ./tests/test_recovery_workbench.py
 python ./tests/test_deleted_recovery.py
 python ./tests/test_three_cases.py
+python ./tests/test_rescue.py
 ```
+
+Windows supports image files and physical-drive inspection. CI also exercises image workflows on Ubuntu; raw devices on non-Windows platforms return `NotImplemented`. macOS is not covered by CI. Raw-device extraction and cloning are currently unavailable even on Windows. See [capabilities](docs/engine-capabilities.md).
 
 ---
 
@@ -159,6 +162,7 @@ python ./tests/test_three_cases.py
 
 `tools/list` exposes **18 tools** including four legacy aliases. The live schema
 and [AGENTS.md tool matrix](AGENTS.md#mcp-tools) are the parameter reference.
+The server reports MCP protocol version `2024-11-05` at initialization.
 
 The main workflow is open → diagnose → inspect/scan → validate an evidence-based
 repair or reconstruction → export asynchronously → verify provenance/content.
@@ -170,12 +174,13 @@ extraction. They do not automatically reconstruct arbitrary fragmented files.
 
 ## Built-in Forensic Skills & Playbooks
 
-`resc` ships with an AI-native `.agents/skills/` knowledge base (inspired by [REA](https://github.com/morluto/rea)) that equips AI coding assistants and agents with structured forensic SOPs:
+`resc` ships with an AI-native `.agents/skills/` knowledge base (inspired by [REA](https://github.com/morluto/rea)). Some playbooks describe aspirational operations; check the [capability reference](docs/engine-capabilities.md) before use:
 
 * **`disk-forensics/`**: Partition table reconstruction (`01_partition_recovery.md`), RAW NTFS repair (`02_ntfs_raw_repair.md`), FAT32/exFAT backup boot sector restoration (`03_fat_exfat_repair.md`), hardware bad sector triage (`05_bad_sector_rescue.md`), and laptop recovery scenarios (`06_laptop_recovery_scenarios.md`).
 * **`file-carving-and-defrag/`**: Statistical boundary coherence matching (`01_boundary_coherence.md`), fragmented MP4/MOV `moov`/`mdat` atom reconstruction (`02_mp4_mov_atom_repair.md`), and corrupted SQLite B-tree page salvage (`03_sqlite_database_salvage.md`).
 * **`filesystem-repair/`**: Deep `$MFT` record surgical repair (`01_ntfs_mft_recovery.md`), FAT32 `FSInfo` reconstruction (`02_fat32_exfat_fsinfo.md`), and Linux `ext4` backup Superblock recovery (`03_ext4_superblock_recovery.md`).
 * **`mcp-disk-automation/`**: Asynchronous job orchestration patterns (`01_async_job_orchestration.md`).
+* **`recovery-triage/`**: Evidence-led triage and Linux Live acquisition workflow.
 
 ---
 
@@ -183,7 +188,7 @@ extraction. They do not automatically reconstruct arbitrary fragmented files.
 
 ```text
 resc/
-├── .agents/skills/          # 4 Specialized AI Forensic Skill Modules & 13 Playbooks
+├── .agents/skills/          # 5 Specialized AI Forensic Skill Modules & 13 Playbooks
 ├── ai-context/              # Decision trees & tool catalogs for LLM context injection
 ├── bin/                     # Node.js NPX wrapper (resc-mcp.js) for instant MCP integration
 ├── crates/
@@ -212,4 +217,4 @@ Data recovery on failing hardware carries inherent physical risks. If a drive is
 
 ## License
 
-Licensed under the [Apache License 2.0](./LICENSE). Workspace/package metadata and historical documents may contain older license labels; LICENSE is the project license document.
+Licensed under the [Apache License 2.0](./LICENSE).
