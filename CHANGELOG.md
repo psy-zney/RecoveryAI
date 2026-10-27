@@ -1,13 +1,15 @@
 # Changelog
 
-All notable changes to **RecoveryAI** will be documented in this file.
+All notable changes to **resc** will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
-## [1.0.0] - 2026-10-25
+## [Unreleased]
+
+The npm package declares version 1.0.0 independently of the Rust workspace (0.1.0). The entries below describe project work, not a verified Git release.
 
 ### Added
 - **Core Native Engine (Rust):**
@@ -21,7 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - SIMD Aho-Corasick scanner (`ScannerEngine`) for rapid multi-signature file carving at GB/s.
   - Boundary Coherence mathematical matcher for fragmented media.
 - **MCP Server & Protocol (JSON-RPC 2.0 stdio):**
-  - Full implementation of 9 MCP tools + legacy aliases.
+  - MCP tool catalog and legacy aliases; see `docs/engine-capabilities.md` for current limitations.
   - Background asynchronous task scheduler (`AsyncJobManager`) for non-blocking carving.
   - Direct physical disk enumeration tool (`list_physical_drives`).
 - **Autonomous AI Skills (`.agents/skills/`):**
@@ -30,6 +32,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `file-carving-and-defrag` with boundary coherence and atom reconstruction.
   - `mcp-disk-automation` with non-blocking polling and overlay budget management.
 - **NPX Launcher & GitHub Distribution:**
-  - Cross-platform `recoveryai-mcp` Node.js launcher with auto-download capability.
+  - Cross-platform Node.js launcher; automatic unverified binary downloads are disabled.
   - Automated GitHub Actions CI/CD workflows for Windows builds and releases.
-  - Full end-to-end synthetic test suite (`tests/test_e2e_recovery.py`) passing 5/5 scenarios 100%.
+  - End-to-end synthetic test suite (`tests/test_e2e_recovery.py`).

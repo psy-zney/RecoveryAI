@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "resc": {
+      "command": "node",
+      "args": ["<absolute-path-to-resc>/bin/resc-mcp.js"],
+      "env": {
+        "RESC_MCP_BIN": "<absolute-path-to-trusted-mcp-server-binary>",
+        "RUST_LOG": "info"
+      }
+    }
+  }
+}

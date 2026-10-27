@@ -1,4 +1,4 @@
-# Contributing to RecoveryAI 🛡️
+# Contributing to resc 🛡️
 
 We welcome contributions from digital forensics specialists, systems engineers, and AI developers!
 

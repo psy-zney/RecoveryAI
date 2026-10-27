@@ -165,7 +165,8 @@ overlay read/seek/patch operations; extended libFuzzer campaigns are separate wo
 The E2E suite checks synthetic NTFS/FAT/GPT recovery, source hashes, manifest
 hashes and extents, cross-chunk signatures, clone/map output, pagination, 4Kn WAL
 replay after restart, and cancellation of a large extraction over stdio. Set
-`RECOVERYAI_MCP_BIN` to select a freshly built binary.
+`RESC_MCP_BIN` to select a freshly built binary; `RECOVERYAI_MCP_BIN` remains a
+fallback for existing configurations.
 
 Synthetic tests do not certify failing real hardware or every corrupted image.
 Validate acquisitions and exported formats independently before using evidence.

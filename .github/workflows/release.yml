@@ -22,10 +22,18 @@ jobs:
       - name: Build Release Binary
         run: cargo build --release --bin mcp-server
 
+      - name: Generate SHA-256 checksum
+        shell: pwsh
+        run: |
+          $hash = (Get-FileHash target/release/mcp-server.exe -Algorithm SHA256).Hash.ToLowerInvariant()
+          [System.IO.File]::WriteAllText("$env:GITHUB_WORKSPACE/target/release/mcp-server.exe.sha256", "$hash  mcp-server.exe`n")
+
       - name: Create Release and Upload Asset
         uses: softprops/action-gh-release@v2
         with:
-          files: target/release/mcp-server.exe
+          files: |
+            target/release/mcp-server.exe
+            target/release/mcp-server.exe.sha256
           draft: false
           prerelease: false
           generate_release_notes: true
