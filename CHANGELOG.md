@@ -1,3 +1,29 @@
+# Three-case integration (2026-10-26)
+
+- Three independent agents researched and implemented partition/boot proposals,
+  FAT32 deleted-root-entry evidence, and JPEG/PNG content boundaries/validation.
+- Added analyze_partition_recovery, analyze_file_candidate and the asynchronous
+  FAT32_DELETED_SCAN job; unified case IDs, sessions, byte plans and provenance.
+- Extended CLI with analyze-partition, deleted-scan and analyze-file; full-image
+  deep triage also scans detected FAT32 roots with explicit limits.
+- Added independent research reports and cross-case synthetic regressions,
+  including overlay boot repair -> deleted extent -> PNG validation -> exact export.
+- Add a reproducible bounded-fragment/video counterexample study showing ambiguity,
+  unsupported three-fragment search, and decode-success with wrong video content.
+
+# Recovery workbench upgrade (2026-10-26)
+
+- Add a Vietnamese installation/source-selection/recovery guide and portable MCP
+  configuration generation; correct obsolete panic flags and capability claims.
+- Add general read-only MCP triage, bounded MP4/MOV candidate inspection, streaming
+  ISO BMFF box discovery and ordered exact-byte fragmented exports with provenance.
+- Add a Python CLI for multi-route diagnostics, scans, tree extraction, image clone,
+  reconstruction plans and independent optional FFmpeg/ffprobe verification.
+- Add regressions for malicious plans, cross-chunk boxes, reordered unaligned
+  fragments, CLI workflows and a real reconstructed video's full decode.
+- Retain explicit limitations: no arbitrary fragment-order inference, missing-moov
+  regeneration, deleted-record recovery or newly enabled external recovery adapters.
+
 # Changelog
 
 All notable changes to **RecoveryAI** will be documented in this file.

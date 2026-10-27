@@ -12,7 +12,7 @@
 [![Rust](https://img.shields.io/badge/Built_with-Rust_&_SIMD-orange?logo=rust)](https://www.rust-lang.org/)
 [![MCP](https://img.shields.io/badge/Protocol-MCP_(JSON--RPC)-blue)](https://modelcontextprotocol.io/)
 [![Safety](https://img.shields.io/badge/Physical_I/O-100%25_Read--Only-brightgreen)](#safety-architecture-in-memory-virtual-overlay)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
+[![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](./LICENSE)
 
 *Turn Claude, Cursor, or Gemini into a Digital Forensics & Data Recovery Specialist — without ever writing a single byte to your damaged drive.*
 
@@ -25,6 +25,35 @@
 <!-- TODO: Replace with your 45-second terminal + Claude/Cursor split-screen GIF -->
 <!-- ![resc Demo](./assets/demo.gif) -->
 
+## Setup and recovery workbench
+
+Read the **[Vietnamese step-by-step recovery guide](docs/recovery-guide.vi.md)**
+for installation, selecting raw source images, diagnosing multiple failure types,
+MP4/MOV box analysis, exact byte-range reconstruction and FFmpeg verification.
+The workbench does not require choosing a failure hypothesis in advance.
+Read the [professional literature review and research roadmap](docs/research/literature-review-and-roadmap.vi.md)
+for 14 examined works and the distinction between implemented capabilities and
+proposed metadata-, codec- and validation-guided reconstruction.
+The [controlled deep-evidence study](docs/research/deep-evidence-study.vi.md)
+records reproducible negative cases: two structurally valid PNG candidates can
+conflict, and an MP4 can probe/decode all frames while containing wrong video data.
+See the [three-case integration guide](docs/three-cases.vi.md) and independently
+researched implementations for partition/boot damage, deleted FAT32 metadata and
+fragmented content. Added tools include `analyze_partition_recovery` and
+`analyze_file_candidate`; FAT32 deleted-entry discovery is an asynchronous job.
+
+```bash
+bash scripts/setup.sh
+python scripts/recovery.py doctor
+python scripts/recovery.py triage /path/to/source.img --deep
+python scripts/recovery.py mcp-config --session-root /path/to/persistent-state
+```
+
+New MCP tools: `diagnose_recovery`, `analyze_video_candidate`. New scan job:
+`ISO_BMFF_BOX_SCAN`. New export mode: `CARVE_BY_BYTE_RANGES`. These add evidence-led
+triage and exact extent reconstruction; they do not infer arbitrary fragment order
+or regenerate missing video metadata. See [algorithm provenance](docs/open-source-engines.md).
+
 ## Why `resc`?
 
 When a USB drive or hard disk turns `RAW`, loses its partition table, or suffers from corrupted `$MFT` / `FAT` headers, users face a painful choice:
@@ -34,7 +63,7 @@ When a USB drive or hard disk turns `RAW`, loses its partition table, or suffers
 **`resc` bridges this gap.** However, you cannot simply feed a 500GB raw disk image into an LLM's context window. 
 
 `resc` implements a **Hybrid Brain & Muscle Architecture**:
-* **The Muscle (Rust + AVX2 SIMD):** Handles raw 4KB-aligned DMA disk I/O, SCSI hardware timeouts, gigabyte-per-second signature scanning, Shannon entropy calculation ($0.0 - 8.0\text{ bits/byte}$), and zero-copy struct parsing (`MBR`, `GPT`, `NTFS`, `FAT32/exFAT`, `ext4`).
+* **The Rust engine:** Provides read-only image I/O, Windows physical I/O, streaming signature discovery, entropy measurements, MBR/GPT validation, native NTFS/FAT traversal and bounded MP4/MOV structure inspection. Actual throughput depends on the source and hardware.
 * **The Brain (AI Agent via MCP):** Receives ultra-compact **< 5KB JSON Anomaly Reports**, diagnoses structural corruption, tests hex patches safely in **RAM (Copy-on-Write Overlay)**, and orchestrates file extraction.
 
 ---
@@ -69,9 +98,9 @@ When a USB drive or hard disk turns `RAW`, loses its partition table, or suffers
 
 Allowing an AI Agent to directly modify sectors on a damaged physical drive is dangerous. **`resc` enforces a strict hardware-level Read-Only policy:**
 
-1. **Immutable Physical Access:** Physical drives (`\\.\PhysicalDriveX` on Windows, `/dev/sdX` on Linux) are opened exclusively with `GENERIC_READ` / `O_RDONLY` and `FILE_FLAG_NO_BUFFERING`. Write handles do not exist in the codebase.
+1. **Read-only source access:** Image files and supported Windows physical devices are opened read-only. Linux development uses regular raw images; raw-device export/isolation is not implemented. Output files and WALs are separate writable artifacts.
 2. **Copy-on-Write (CoW) RAM Patching:** When the AI Agent wants to rebuild a destroyed MBR or restore a corrupted NTFS Volume Boot Record (VBR) from its end-of-volume backup, it calls `virtual_patch_and_verify`.
-3. **Instant Mount Simulation:** The patch is stored in an in-memory `BTreeMap<u64, [u8; 512]>` (`crates/core-io/src/virtual_overlay.rs`). All filesystem parsers read through this overlay, immediately reporting back to the AI whether the root directory tree mounts cleanly—without touching a single bit on the physical USB/disk.
+3. **Native verification:** Patches use the session logical sector size (512/4096), are journaled to a separate WAL and read through the overlay. A successful verification requires native NTFS/FAT root traversal and a valid file entry; it does not certify the whole volume or every file.
 
 ---
 
@@ -99,39 +128,36 @@ package named `resc` and requires that package to be published separately.
 
 ### 2. Build from Source (Rust Workspace)
 
-Prerequisites: **Rust 1.80+** (Cargo). For physical drive access on Windows, run your terminal/client as **Administrator**.
+Prerequisites: **current Rust stable** (Cargo), **Node >=18**, and **Python >=3.11**. For physical drive access on Windows, run your terminal/client as **Administrator**.
 
 ```bash
-git clone [https://github.com/psy-zney/resc.git](https://github.com/psy-zney/resc.git)
+git clone https://github.com/psy-zney/resc.git
 cd resc
 
-# Optional: Download companion forensic binaries (The Sleuth Kit, PhotoRec, ddrescue)
-pwsh ./scripts/download_binaries.ps1
+# External legacy forensic adapters are currently disabled; no companion downloads are needed.
 
 # Build optimized release binary with AVX2/SIMD enabled
 cargo build --release
 
-# Run End-to-End synthetic corruption tests (Safe 1GB virtual images)
-python ./tests/create_sample_images.py
+# Run disposable synthetic corruption / reconstruction tests
 python ./tests/test_e2e_recovery.py
+python ./tests/test_recovery_workbench.py
+python ./tests/test_deleted_recovery.py
+python ./tests/test_three_cases.py
 ```
 
 ---
 
 ## MCP Tools Catalog
 
-`resc` exposes **8 token-efficient tools** designed around *Progressive Disclosure*:
+`tools/list` exposes **18 tools** including four legacy aliases. The live schema
+and [AGENTS.md tool matrix](AGENTS.md#mcp-tools) are the parameter reference.
 
-| Tool Name | Layer | Description |
-| :--- | :--- | :--- |
-| `open_recovery_session` | Layer 0 | Opens a physical drive or `.img` file in Read-Only DMA mode and initializes the RAM Virtual Overlay. |
-| `scan_disk_topology` | Layer 1/2 | Rapidly inspects LBA 0 (MBR), LBA 1..33 (GPT), Backup GPT, and common VBR offsets. Returns a `<2KB` JSON anomaly map. |
-| `inspect_sector_structure` | Layer 2 | Casts raw sectors into zero-copy structs (`MBR`, `GPT`, `NTFS_VBR`, `FAT32_BPB`, `MFT_ENTRY`), highlighting corrupted fields and Shannon Entropy ($0.0 - 8.0$). |
-| `scan_filesystem_journals` | Layer 2 | Parses `$MFTMirr`, `$UsnJrnl`, `$I30` directory indexes (NTFS), or backup FAT tables to locate recently deleted files. |
-| `start_async_disk_job` | Layer 1/3 | Launches non-blocking background threads for `DD_RESCUE_CLONE`, `SIMD_VBR_HUNT`, `SIMD_MAGIC_CARVE`, or `FRAGMENT_PREFILTER`. |
-| `poll_async_job` | Bridge | Streams real-time progress (`MB/s`, `bad_sectors_count`, discovered LBA hits) without timing out the MCP connection. |
-| `virtual_patch_and_verify` | Layer 0/2 | Applies hex patches or sector copies in RAM and simulates mounting the filesystem to verify directory tree integrity. |
-| `extract_recovered_data` | Layer 3 | Extracts recovered files (incorporating active RAM patches or stitched cluster ranges) to a safe destination directory. |
+The main workflow is open → diagnose → inspect/scan → validate an evidence-based
+repair or reconstruction → export asynchronously → verify provenance/content.
+`scan_filesystem_journals` remains an explicit NotImplemented endpoint. New video
+box scanning and byte-range exports supplement native NTFS/FAT allocated-file
+extraction. They do not automatically reconstruct arbitrary fragmented files.
 
 ---
 
@@ -179,4 +205,4 @@ Data recovery on failing hardware carries inherent physical risks. If a drive is
 
 ## License
 
-Licensed under the [MIT License](./LICENSE).
+Licensed under the [Apache License 2.0](./LICENSE). Workspace/package metadata and historical documents may contain older license labels; LICENSE is the project license document.

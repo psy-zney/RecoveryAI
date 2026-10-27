@@ -54,6 +54,15 @@ jobs:
       - name: Run End-to-End Forensic Test Suite
         run: python tests/test_e2e_recovery.py
 
+      - name: Run Recovery Workbench Regression Tests
+        run: python tests/test_recovery_workbench.py
+
+      - name: Run FAT32 Deleted-Entry Regression Tests
+        run: python tests/test_deleted_recovery.py
+
+      - name: Run Three-Case Integration Tests
+        run: python tests/test_three_cases.py
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:

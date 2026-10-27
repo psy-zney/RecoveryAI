@@ -1,0 +1,29 @@
+{
+  "study": "controlled evidence checks, not a recovery benchmark",
+  "script_sha256": "974c1e84521180a89f29708742484542e35c5c6622d923b0f4244d40de3961fc",
+  "ffmpeg": "ffmpeg version 7.1.5-0+deb13u1 Copyright (c) 2000-2026 the FFmpeg developers",
+  "python": "3.12.14",
+  "fragment_search": [
+    {"case": "contiguous", "validations": 2, "budget_exhausted": false, "candidate_plans": 2, "distinct_candidate_contents": 1, "exact_content_plans": 2, "wrong_content_plans": 0, "seconds": 0.0011, "source_unchanged": true},
+    {"case": "forward_two_fragments", "validations": 43, "budget_exhausted": false, "candidate_plans": 1, "distinct_candidate_contents": 1, "exact_content_plans": 1, "wrong_content_plans": 0, "seconds": 0.0043, "source_unchanged": true},
+    {"case": "reverse_two_fragments", "validations": 12, "budget_exhausted": false, "candidate_plans": 1, "distinct_candidate_contents": 1, "exact_content_plans": 1, "wrong_content_plans": 0, "seconds": 0.0016, "source_unchanged": true},
+    {"case": "two_valid_different_tails", "validations": 118, "budget_exhausted": false, "candidate_plans": 2, "distinct_candidate_contents": 2, "exact_content_plans": 1, "wrong_content_plans": 1, "seconds": 0.0136, "source_unchanged": true},
+    {"case": "overwritten_tail", "validations": 43, "budget_exhausted": false, "candidate_plans": 0, "distinct_candidate_contents": 0, "exact_content_plans": 0, "wrong_content_plans": 0, "seconds": 0.0045, "source_unchanged": true},
+    {"case": "three_fragments", "validations": 87, "budget_exhausted": false, "candidate_plans": 0, "distinct_candidate_contents": 0, "exact_content_plans": 0, "wrong_content_plans": 0, "seconds": 0.0087, "source_unchanged": true}
+  ],
+  "video_validation": {
+    "fixture": {
+      "colors": ["red", "blue"],
+      "encoder": {"codec": "libx264", "preset": "ultrafast", "pixel_format": "yuv420p", "qp": 20, "x264_params": "keyint=1:scenecut=0", "b_frames": 0, "threads": 1, "size": "64x64", "fps": 6, "seconds": 2},
+      "red_packet_sizes": [592, 35, 35, 35, 35, 35, 35, 35, 35, 35, 35, 35],
+      "blue_packet_sizes": [592, 35, 35, 35, 35, 35, 35, 35, 35, 35, 35, 35]
+    },
+    "cases": [
+      {"case": "intact", "structure": "STRUCTURE_CONSISTENT", "probe_exit": 0, "reported_frames": ["12"], "decode_exit": 0, "decoded_bytes": 147456, "decoded_rgb_sha256": "f53852eb5c3420f6a093b189516619b363dcb21ae86f4cf883b39a1114dabe24", "file_matches_original": true, "source_unchanged": true, "decoded_content_matches_original": true},
+      {"case": "missing_moov", "structure": "MISSING_MOOV", "probe_exit": 0, "reported_frames": ["12"], "decode_exit": 0, "decoded_bytes": 147456, "decoded_rgb_sha256": "f53852eb5c3420f6a093b189516619b363dcb21ae86f4cf883b39a1114dabe24", "file_matches_original": false, "source_unchanged": true, "decoded_content_matches_original": true},
+      {"case": "truncated_mdat", "structure": "INVALID_OR_BUDGET_EXCEEDED", "probe_exit": 1, "reported_frames": [], "decode_exit": 183, "decoded_bytes": 0, "decoded_rgb_sha256": null, "file_matches_original": false, "source_unchanged": true, "decoded_content_matches_original": null},
+      {"case": "zeroed_media_same_boxes", "structure": "STRUCTURE_CONSISTENT", "probe_exit": 0, "reported_frames": [null], "decode_exit": 183, "decoded_bytes": 0, "decoded_rgb_sha256": null, "file_matches_original": false, "source_unchanged": true, "decoded_content_matches_original": null},
+      {"case": "cross_video_payload_splice", "structure": "STRUCTURE_CONSISTENT", "probe_exit": 0, "reported_frames": ["12"], "decode_exit": 0, "decoded_bytes": 147456, "decoded_rgb_sha256": "cc823c364055795abb2e0354de8016be62ab43ad78f8fd7da2070df1f83cdd56", "file_matches_original": false, "source_unchanged": true, "decoded_content_matches_original": false}
+    ]
+  }
+}

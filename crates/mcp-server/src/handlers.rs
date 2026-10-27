@@ -211,9 +211,13 @@ impl DiskForensicsServer {
                 self.handle_list_physical_drives().await
             }
 
-            // === 8 Standard Tools ===
+            // === Current MCP Tools ===
             "open_recovery_session" => self.handle_open_recovery_session(&arguments).await,
             "scan_disk_topology" => self.handle_scan_disk_topology(&arguments).await,
+            "diagnose_recovery" => self.handle_diagnose_recovery(&arguments).await,
+            "analyze_video_candidate" => self.handle_analyze_video(&arguments).await,
+            "analyze_partition_recovery" => self.handle_partition_recovery(&arguments).await,
+            "analyze_file_candidate" => self.handle_analyze_content(&arguments).await,
             "inspect_sector_structure" => self.handle_inspect_sector_structure(&arguments).await,
             "scan_filesystem_journals" => self.handle_scan_filesystem_journals(&arguments).await,
             "start_async_disk_job" => self.handle_start_async_disk_job(&arguments).await,
@@ -492,6 +496,35 @@ impl DiskForensicsServer {
         )
     }
 
+    async fn handle_partition_recovery(&self, args: &Value) -> Result<Value> {
+        let params: crate::diagnostics::PartitionParams = serde_json::from_value(args.clone())?;
+        crate::diagnostics::partition(
+            self.get_session(&params.session_id).await?,
+            params.partition_start_lba,
+        )
+        .await
+    }
+
+    async fn handle_analyze_content(&self, args: &Value) -> Result<Value> {
+        let params: crate::diagnostics::ContentParams = serde_json::from_value(args.clone())?;
+        crate::diagnostics::content(
+            self.get_session(&params.session_id).await?,
+            params.ranges,
+            params.format.unwrap_or_else(|| "AUTO".into()),
+        )
+        .await
+    }
+
+    async fn handle_diagnose_recovery(&self, args: &Value) -> Result<Value> {
+        let params: ScanDiskTopologyParams = serde_json::from_value(args.clone())?;
+        crate::diagnostics::triage(self.get_session(&params.session_id).await?).await
+    }
+
+    async fn handle_analyze_video(&self, args: &Value) -> Result<Value> {
+        let params: crate::diagnostics::VideoParams = serde_json::from_value(args.clone())?;
+        crate::diagnostics::video(self.get_session(&params.session_id).await?, params.ranges).await
+    }
+
     async fn handle_scan_disk_topology(&self, args: &Value) -> Result<Value> {
         let params: ScanDiskTopologyParams = serde_json::from_value(args.clone())?;
         let session = self.get_session(&params.session_id).await?;
@@ -731,7 +764,7 @@ impl DiskForensicsServer {
         ensure!(
             matches!(
                 params.mode.as_str(),
-                "CARVE_BY_LBA_RANGES" | "TSK_TREE_EXTRACT"
+                "CARVE_BY_LBA_RANGES" | "CARVE_BY_BYTE_RANGES" | "TSK_TREE_EXTRACT"
             ),
             "NotImplemented: extraction mode {}",
             params.mode

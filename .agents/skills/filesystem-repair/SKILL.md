@@ -3,6 +3,13 @@ name: filesystem-repair
 description: Chuyên gia phân tích cấu trúc nội tại và sửa lỗi filesystem (NTFS, FAT32, exFAT, EXT4) trên RAM Copy-on-Write overlay.
 ---
 
+> Implementation boundary: follow ../recovery-triage/SKILL.md and the live
+> tools/list schema first. Historical playbooks below contain unsupported
+> scenarios. General deleted-record/journal scanning, exFAT/EXT4 recovery and legacy
+> external recovery adapters return NotImplemented. Fragment scores are
+> heuristics, not proof of a match. Native cloning is not GNU ddrescue.
+> All LBAs use session sector_size; never write repairs to original media.
+
 # Kỹ Năng Sửa Chữa Cấu Trúc Hệ Thống Tệp Tin Ảo (Virtual Filesystem Repair)
 
 Kỹ năng này cung cấp các giao thức chuyên sâu để chẩn đoán, tính toán lại thông số hình học (BPB, LCN, Cluster Size) và sửa chữa các hư hỏng nội tại của hệ thống tệp tin hoàn toàn trên RAM Overlay thông qua công cụ `virtual_patch_and_verify`.
@@ -18,6 +25,6 @@ Kỹ năng này cung cấp các giao thức chuyên sâu để chẩn đoán, t�
 ---
 
 ## Danh Mục Playbooks
-- [01_ntfs_mft_recovery.md](file:///c:/Users/admin/MyProject/RecoveryAI/.agents/skills/filesystem-repair/playbooks/01_ntfs_mft_recovery.md): Phục hồi NTFS VBR, khai thác `$MFTMirr` và khôi phục cây chỉ mục `$I30`.
-- [02_fat32_exfat_fsinfo.md](file:///c:/Users/admin/MyProject/RecoveryAI/.agents/skills/filesystem-repair/playbooks/02_fat32_exfat_fsinfo.md): Tái tạo cấu trúc FAT32 FSInfo và xác thực checksum 12 sector của exFAT.
-- [03_ext4_superblock_recovery.md](file:///c:/Users/admin/MyProject/RecoveryAI/.agents/skills/filesystem-repair/playbooks/03_ext4_superblock_recovery.md): Tìm kiếm và áp dụng Backup Superblock cho phân vùng Linux EXT4.
+- [01_ntfs_mft_recovery.md](playbooks/01_ntfs_mft_recovery.md): Phục hồi NTFS VBR, khai thác `$MFTMirr` và khôi phục cây chỉ mục `$I30`.
+- [02_fat32_exfat_fsinfo.md](playbooks/02_fat32_exfat_fsinfo.md): Tái tạo cấu trúc FAT32 FSInfo và xác thực checksum 12 sector của exFAT.
+- [03_ext4_superblock_recovery.md](playbooks/03_ext4_superblock_recovery.md): Tìm kiếm và áp dụng Backup Superblock cho phân vùng Linux EXT4.

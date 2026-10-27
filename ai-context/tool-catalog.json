@@ -56,6 +56,133 @@
       "name": "scan_disk_topology"
     },
     {
+      "description": "Read-only triage of MBR/GPT, sampled NTFS/FAT32 boot geometry, exFAT/BitLocker markers and entropy; recommends multiple recovery routes without applying patches. Samples do not prove overwrite, encryption, physical health or recoverability.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "session_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "session_id"
+        ],
+        "type": "object"
+      },
+      "name": "diagnose_recovery"
+    },
+    {
+      "description": "Inspect MP4/MOV box bounds and stco/co64 chunk starts through an ordered, non-overlapping byte reconstruction plan. Skips media payload; bounded to 4096 boxes, depth 12 and 65536 chunk offsets. STRUCTURE_CONSISTENT is not decode verification. Fragmented MP4 needs an external demuxer. Does not write source or output.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "ranges": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "length_bytes": {
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                "source_byte_offset": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "source_byte_offset",
+                "length_bytes"
+              ],
+              "type": "object"
+            },
+            "maxItems": 4096,
+            "minItems": 1,
+            "type": "array"
+          },
+          "session_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "session_id",
+          "ranges"
+        ],
+        "type": "object"
+      },
+      "name": "analyze_video_candidate"
+    },
+    {
+      "description": "Case 1: compare validated primary/backup GPT and NTFS/FAT32 boot evidence; return bounded overlay-only repair proposals. Does not apply patches or establish file recoverability. Unknown volume identity requires independent confirmation.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "partition_start_lba": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "session_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "session_id"
+        ],
+        "type": "object"
+      },
+      "name": "analyze_partition_recovery"
+    },
+    {
+      "description": "Case 3: bounded JPEG marker/PNG CRC structure checks or MP4/MOV box analysis through ordered non-overlapping byte ranges. May identify a candidate terminator length; does not infer unknown fragment order or decode content. AUTO recognizes supported formats only.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "format": {
+            "default": "AUTO",
+            "enum": [
+              "AUTO",
+              "JPEG",
+              "PNG",
+              "MP4",
+              "MOV"
+            ],
+            "type": "string"
+          },
+          "ranges": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "length_bytes": {
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                "source_byte_offset": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "source_byte_offset",
+                "length_bytes"
+              ],
+              "type": "object"
+            },
+            "maxItems": 4096,
+            "minItems": 1,
+            "type": "array"
+          },
+          "session_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "session_id",
+          "ranges"
+        ],
+        "type": "object"
+      },
+      "name": "analyze_file_candidate"
+    },
+    {
       "description": "Read 1..8 sectors through the overlay. Return bounded hex preview or boot/header analysis; boot signatures do not establish mountability.",
       "inputSchema": {
         "additionalProperties": false,
@@ -113,7 +240,7 @@
       "name": "scan_filesystem_journals"
     },
     {
-      "description": "Run a cancellable background job. SIMD jobs accept start_lba/end_lba (exclusive) or count_sectors. DD_RESCUE_CLONE requires destination_image and optional mapfile; uses native block copying, no resume. FRAGMENT_PREFILTER requires first_fragment_end_lba; optional candidate_start_lba/candidate_end_lba/cluster_sectors. Fragment scores are heuristics, not format validation. Poll returns counts and bounded samples.",
+      "description": "Run a cancellable background job. FAT32_DELETED_SCAN inspects deleted SFN entries in a FAT32 root directory; params partition_start_lba required, max_clusters default 256 (1..4096). Bounded candidate evidence, not guaranteed undelete. ISO_BMFF_BOX_SCAN finds plausible ftyp/moov/mdat/moof headers with declared lengths; hits are not validated files or proven fragment matches. SIMD jobs accept start_lba/end_lba (exclusive) or count_sectors. DD_RESCUE_CLONE requires destination_image and optional mapfile; uses native block copying, no resume. FRAGMENT_PREFILTER requires first_fragment_end_lba; optional candidate_start_lba/candidate_end_lba/cluster_sectors. Fragment scores are heuristics, not format validation. Poll returns counts and bounded samples.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -122,7 +249,9 @@
               "SIMD_MAGIC_CARVE",
               "SIMD_VBR_HUNT",
               "FRAGMENT_PREFILTER",
-              "DD_RESCUE_CLONE"
+              "DD_RESCUE_CLONE",
+              "ISO_BMFF_BOX_SCAN",
+              "FAT32_DELETED_SCAN"
             ],
             "type": "string"
           },
@@ -261,13 +390,14 @@
       "name": "virtual_patch_and_verify"
     },
     {
-      "description": "Starts a DATA_EXTRACTION job immediately; poll_async_job reports bytes_written and accepts cancellation. Each output has a SHA-256 provenance manifest, staged before data publication. Exclusive output creation, no overwrite. CARVE_BY_LBA_RANGES params: ranges [{start_lba,count}], optional filename. TSK_TREE_EXTRACT uses native parsers through RAM, params: {partition_start_lba}; exports allocated user files recursively, not deleted records or alternate streams. Tree quotas: 10000 files, 8 GiB, depth 64; errors preserve completed files, remove current incomplete file.",
+      "description": "Starts a DATA_EXTRACTION job immediately; poll_async_job reports bytes_written and accepts cancellation. Each output has a SHA-256 provenance manifest, staged before data publication. Exclusive output creation, no overwrite. CARVE_BY_BYTE_RANGES params: ranges [{source_byte_offset,length_bytes}] in output order, optional filename; no overlap, no inferred fragment order or format validation. CARVE_BY_LBA_RANGES params: ranges [{start_lba,count}], optional filename. TSK_TREE_EXTRACT uses native parsers through RAM, params: {partition_start_lba}; exports allocated user files recursively, not deleted records or alternate streams. Tree quotas: 10000 files, 8 GiB, depth 64; errors preserve completed files, remove current incomplete file.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
           "mode": {
             "enum": [
               "CARVE_BY_LBA_RANGES",
+              "CARVE_BY_BYTE_RANGES",
               "TSK_TREE_EXTRACT"
             ],
             "type": "string"

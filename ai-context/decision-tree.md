@@ -7,7 +7,7 @@ recovery step occurred merely because it appears in an older playbook.
 1. Open a regular image with `open_recovery_session(target_path, sector_size?)`.
    A zero-length, misaligned or unreadable source must fail. Raw device exports are
    currently unsupported because destination-device isolation is not implemented.
-2. Use `scan_disk_topology(session_id)` for MBR capacity and GPT CRC/range checks.
+2. Start with `diagnose_recovery(session_id)` for multiple evidence-led routes. Use `scan_disk_topology(session_id)` for MBR capacity and GPT CRC/range checks.
    Inspect a partition with `inspect_sector_structure`, using `count` between 1 and 8.
 3. If a boot record is damaged, inspect its backup at an evidence-derived address.
    Apply `virtual_patch_and_verify` with a sector copy or checked byte patches and
@@ -34,7 +34,7 @@ recovery step occurred merely because it appears in an older playbook.
    Windows pending reads request CancelIoEx after a 500 ms timeout or cancellation;
    a driver that does not complete cancellation can still delay the worker.
 
-Journal/deleted-record scanning, exFAT/EXT4 recovery, PhotoRec execution and legacy
+Journal/NTFS-deleted-record scanning, exFAT/EXT4 recovery, PhotoRec execution and legacy
 single-inode export return `NotImplemented`. A tool error must stop any dependent
 workflow. State partial output, read failures and verification limitations explicitly.
 
@@ -42,3 +42,17 @@ All MCP LBAs use the session sector_size (512 or 4096). Preserve RESC_SESSION_RO
 for WAL and hit logs. An image can be reopened with resume_session_id; source
 identity and geometry must match. Never build with panic=abort. Preserve staged
 clone/map or file/manifest artifacts when a commit returns recovery paths.
+
+For separated MP4/MOV metadata, run ISO_BMFF_BOX_SCAN, then validate an evidence-
+based ordered byte plan with analyze_video_candidate. Exact unaligned extents can
+be exported using CARVE_BY_BYTE_RANGES. Do not infer fragment ownership from
+nearby box signatures or treat STRUCTURE_CONSISTENT as decoded video integrity.
+Use the recovery-triage skill and optional FFmpeg verification described in the
+Vietnamese guide. These steps supplement rather than replace filesystem extents.
+
+The three-case workflow now adds analyze_partition_recovery for bounded backup
+repair evidence, FAT32_DELETED_SCAN for root deleted SFN allocation evidence, and
+analyze_file_candidate for JPEG/PNG/MP4/MOV content structure. Follow
+[the integration guide](../docs/three-cases.vi.md); these capabilities share one
+overlay and byte-plan format. A candidate from FAT32 deletion is not verified
+content, and no unknown multi-cluster chain or fragment order is inferred.

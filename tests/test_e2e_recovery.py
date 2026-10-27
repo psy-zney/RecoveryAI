@@ -79,6 +79,7 @@ class McpClient:
             self.process.stdin.close()
             self.process.wait(timeout=5)
         self.reader.join(timeout=1)
+        self.process.stdout.close()
 
 
 def run_all_e2e_tests():

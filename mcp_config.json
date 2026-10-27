@@ -1,23 +1,9 @@
 {
   "mcpServers": {
-    "recoveryai-native": {
-      "command": "C:/Users/admin/MyProject/RecoveryAI/target/release/mcp-server.exe",
-      "args": [
-        "--read-only-enforced"
-      ],
-      "env": {
-        "RUST_LOG": "info"
-      }
-    },
-    "recoveryai-npx": {
+    "resc": {
       "command": "node",
-      "args": [
-        "C:/Users/admin/MyProject/RecoveryAI/bin/resc-mcp.js",
-        "--read-only-enforced"
-      ],
-      "env": {
-        "RUST_LOG": "info"
-      }
+      "args": ["/absolute/path/to/resc/bin/resc-mcp.js", "--read-only-enforced"],
+      "env": {"RESC_SESSION_ROOT": "/absolute/path/to/persistent-resc-state", "RUST_LOG": "info"}
     }
   }
 }
