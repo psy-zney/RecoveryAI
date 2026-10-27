@@ -9,6 +9,8 @@ libraries. It does not claim to implement every algorithm of an external tool.
 | ntfs 0.4.0 | https://github.com/ColinFinck/ntfs — MIT OR Apache-2.0 | Existing native allocated-file traversal through the overlay |
 | fatfs 0.3.6 | https://github.com/rafalh/rust-fatfs — MIT | Existing FAT traversal with writes explicitly denied |
 | FFmpeg / ffprobe | https://ffmpeg.org/ and https://ffmpeg.org/legal.html — LGPL/GPL depending on build | New optional local executable integration in scripts/recovery.py for MOV/MP4 demux and full audio/video decode verification |
+| GNU ddrescue | https://www.gnu.org/software/ddrescue/ — GPL-2.0-or-later | Optional external executable in scripts/rescue.py: fast/retry passes, mapfile resume and sealed acquisition; separate from disabled Rust adapter |
+| OpenSSH | https://www.openssh.com/ — upstream BSD-style licenses | Installed ssh client for authenticated remote Linux acquisition control and resumable sealed-image transfer; no server/keys bundled |
 | ISO BMFF / QuickTime box analysis | Original implementation in crates/disk-parsers/src/iso_bmff.rs | Bounded size32/size64/size0 parsing, container traversal and stco/co64 chunk-start checks; not a codec decoder |
 | Ordered byte reconstruction | Original implementation in byte_view.rs and extraction.rs | Reordered unaligned extents, non-overlap validation, cancellable exact-byte export, existing SHA-256 provenance |
 
@@ -29,7 +31,9 @@ PhotoRec/TestDisk (https://www.cgsecurity.org/), The Sleuth Kit
 (https://www.gnu.org/software/ddrescue/) are relevant external engines. Their
 legacy adapters in this repository remain disabled with explicit NotImplemented
 errors. Installing one does not silently enable it, and the native DD_RESCUE_CLONE
-job is a block copier, not GNU ddrescue's recovery algorithm. No GPL recovery code
+job is a block copier, not GNU ddrescue's recovery algorithm. The separate new
+Linux rescue.py CLI explicitly integrates an installed GNU ddrescue executable.
+No GPL recovery code
 was copied into the project under another license.
 
 Future recovery adapters need reviewed licensing, explicit read-only source

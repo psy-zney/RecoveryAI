@@ -3,6 +3,33 @@
 The live `tools/list` schema and this document describe the implemented engine.
 Older architectural examples and forensic playbooks may describe unsupported work.
 
+## Linux Live and two-computer acquisition CLI
+
+`scripts/rescue.py` is a separate stdlib acquisition CLI, not an MCP endpoint.
+It inventories Linux devices through lsblk, verifies source/destination backing
+with sysfs (including partitions/dm/md), rejects mounted/swap source backing,
+and uses external GNU ddrescue for fast/retry passes and explicit mapfile resume.
+Block inputs are opened read-only; output is a new private case on a separate
+known local backing disk. Unknown backing (including common network/overlay
+filesystems), unsupported virtual devices and ambiguous geometry fail closed.
+The output image starts as sparse zeros; unresolved bytes retain unknown status
+in rescue.map. Source identity checks are metadata checks, not hardware attestation.
+
+Sealing hashes acquired image/map and prevents subsequent acquisition into that
+case. SSH control uses keys and strict host-key checking; resumable transfer of
+sealed artifacts verifies full SHA-256 before publication. SSH remote acquisition
+stages the image on a healthy disk attached to the source computer. Direct remote
+block acquisition into the helper computer is not implemented. A bundle command
+copies the toolkit for an existing Linux Live USB; it does not create a boot ISO.
+Windows/macOS remain supported for image recovery, not this Linux acquisition CLI.
+See [the connection/setup guide](two-computer-rescue.vi.md).
+
+`recovery.py triage --acquisition-manifest sealed.json|received.json` verifies the
+image/map hashes and includes acquisition status/unresolved bytes. This does not
+import ddrescue map ranges into the native MCP bad-sector map. Preserve both
+acquisition and recovery manifests. The historical Rust external adapters and
+raw-device export guards described below remain unchanged.
+
 ## Addressing and read-only access
 
 Every MCP LBA uses the session's logical `sector_size`: **512 or 4096 bytes**.

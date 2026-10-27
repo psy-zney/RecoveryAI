@@ -8,6 +8,15 @@ description: Evidence-led multi-route triage of raw disk images, file fragmentat
 Read docs/engine-capabilities.md and docs/recovery-guide.vi.md. Use tools/list as
 the parameter authority. Historical playbooks do not establish implementation.
 
+Before image recovery on an unbootable source computer, use
+docs/two-computer-rescue.vi.md and scripts/rescue.py. Inventory on a running Linux
+Live OS; acquire only to separate known backing with unmounted source. Keep map
+and source binding for resume. SSH acquisition requires healthy staging storage
+on the source computer. Seal before transfer; preserve unresolved map regions as
+unknown. Use recovery.py triage --acquisition-manifest to verify image/map hashes.
+These CLI operations are not added MCP endpoints. Never infer that an ordinary
+cable permits access to a powered-off machine or that software repairs dead NAND.
+
 1. Record the user's source and a separate output location. Prefer an immutable
    raw image with acquisition geometry and an independent hash. Do not assume
    .001 is a complete acquisition or that changing an extension converts E01.

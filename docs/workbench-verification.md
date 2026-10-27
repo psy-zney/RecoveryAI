@@ -79,3 +79,25 @@ two structurally valid contents and one cross-video packet splice that remained
 structurally consistent, probed 12 frames and decoded without errors while its
 decoded RGB hash differed from the original. All source-image hashes remained
 unchanged. These are counterexamples and boundary checks, not recovery-rate data.
+
+## Linux rescue/acquisition validation (2026-10-27)
+
+`tests/test_rescue.py` adds 14 Linux tests. Real GNU ddrescue 1.29 was built outside
+the checkout from Debian's upstream source archive with SHA-256
+`35fcdca2acd98addbe9e620aeae4077ec1cf3e718cf6453e7eed021d31ea255d`
+(matched against the HTTPS Debian `.dsc`; no independent signature verification
+claimed). Its binary is not bundled or committed. Tests execute fast acquisition,
+resume/retry/seal and upstream `--test-mode` fault injection against a synthetic
+2 MiB image, proving one unreadable 512-byte region is reported PARTIAL and kept
+as unresolved acquisition evidence rather than full recovery.
+
+Other checks cover no-write planning, source identity drift, map gaps/overlap,
+mutated sealed artifacts, same-backing/mounted-source/swap guards, case locking,
+host argument validation, required strict-host-key SSH options, interrupted
+transfer/resume, corrupt transfer rejection, toolkit hashes and triage binding
+of image/map hashes. Block-device guards use mocked topology; no physical drive
+was opened for acquisition. Local device inventory and setup readiness were run.
+SSH process-protocol tests use an explicit local subprocess transport; no real
+two-host connection, host-key authentication, Live USB boot, failing SSD or Windows
+acquisition was exercised. CI installs gddrescue on Linux and runs this suite;
+Linux-specific tests explicitly skip on other platforms.

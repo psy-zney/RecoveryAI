@@ -31,6 +31,13 @@ Read the **[Vietnamese step-by-step recovery guide](docs/recovery-guide.vi.md)**
 for installation, selecting raw source images, diagnosing multiple failure types,
 MP4/MOV box analysis, exact byte-range reconstruction and FFmpeg verification.
 The workbench does not require choosing a failure hypothesis in advance.
+For a computer that cannot boot its OS, start with the
+[two-computer / Linux Live rescue guide](docs/two-computer-rescue.vi.md).
+`scripts/rescue.py` adds Linux device inventory, GNU ddrescue acquisition with
+resume/retry, an existing-Live-USB toolkit bundle, authenticated SSH control and
+resumable hash-verified transfer of sealed acquisitions. SSH acquisition stages
+the image on a healthy destination disk at the source computer before transfer;
+it does not make a powered-off computer accessible through an ordinary USB cable.
 Read the [professional literature review and research roadmap](docs/research/literature-review-and-roadmap.vi.md)
 for 14 examined works and the distinction between implemented capabilities and
 proposed metadata-, codec- and validation-guided reconstruction.

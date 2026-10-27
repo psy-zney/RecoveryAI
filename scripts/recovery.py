@@ -161,6 +161,28 @@ def read_plan(args, source):
     return {"ranges": [{"source_byte_offset": args.offset, "length_bytes": args.length}]}
 
 
+def acquisition_evidence(manifest_path, source):
+    """Bind acquired image and map to sealed acquisition or verified SSH receipt."""
+    path = Path(manifest_path).resolve(strict=True)
+    if path.stat().st_size > 1024 * 1024:
+        raise ValueError("Acquisition metadata exceeds 1 MiB")
+    report = json.loads(path.read_text(encoding="utf-8"))
+    acquisition = report.get("acquisition", report)
+    if acquisition.get("schema") != 1 or acquisition.get("status") not in {"COMPLETE", "PARTIAL"}:
+        raise ValueError("Cần sealed.json hoặc received.json từ rescue.py")
+    for name, artifact in [("image.img", source), ("rescue.map", path.parent / "rescue.map")]:
+        expected = acquisition.get("files", {}).get(name, {})
+        if not isinstance(expected.get("size"), int) or not isinstance(expected.get("sha256"), str):
+            raise ValueError("Invalid acquisition artifact metadata: " + name)
+        if artifact.stat().st_size != expected["size"] or sha256(artifact) != expected["sha256"]:
+            raise ValueError("Acquisition artifact hash/size mismatch: " + name)
+    return {"status": acquisition["status"], "hashes_verified": True,
+            "sector_size": acquisition.get("source", {}).get("sector_size"),
+            "rescued_bytes": acquisition.get("rescued_bytes"),
+            "unresolved_bytes": acquisition.get("unresolved_bytes"),
+            "note": "Unresolved map regions are unknown; zero bytes there do not prove TRIM or overwrite"}
+
+
 def verify_media(path, decode=False, seconds=120):
     """Use upstream FFmpeg tools without shell, remote protocols or output writes."""
     source = Path(path).resolve(strict=True)
@@ -228,6 +250,7 @@ def main(argv=None):
             sub.add_argument("--end-lba", type=int)
         if command == "triage":
             sub.add_argument("--deep", action="store_true", help="Quét toàn bộ các route signature/VBR/video; có thể mất nhiều giờ")
+            sub.add_argument("--acquisition-manifest", help="sealed.json/received.json: verify image/map hashes and retain unreadable-region evidence")
         if command == "scan":
             sub.add_argument("--kind", choices=["SIMD_MAGIC_CARVE", "SIMD_VBR_HUNT", "ISO_BMFF_BOX_SCAN", "FAT32_DELETED_SCAN"], default="SIMD_MAGIC_CARVE")
         if command in {"analyze-video", "analyze-file", "recover"}:
@@ -253,7 +276,7 @@ def main(argv=None):
     if args.command == "doctor":
         report = {"python": sys.version.split()[0], "platform": sys.platform,
                   "binary_exists": Path(args.binary).is_file(),
-                  "tools": {name: shutil.which(name) for name in ["cargo", "rustc", "node", "ffprobe", "ffmpeg"]},
+                  "tools": {name: shutil.which(name) for name in ["cargo", "rustc", "node", "ffprobe", "ffmpeg", "ddrescue", "ssh", "lsblk"]},
                   "session_root_configured": bool(os.environ.get("RESC_SESSION_ROOT")),
                   "next_step": "Build: cargo build --release --locked. No pip/npm dependencies. See docs/recovery-guide.vi.md"}
     elif args.command == "mcp-config":
@@ -263,12 +286,17 @@ def main(argv=None):
         report = verify_media(args.file, args.decode, args.timeout)
     else:
         source = source_path(args)
+        acquisition = acquisition_evidence(args.acquisition_manifest, source) if getattr(args, "acquisition_manifest", None) else None
+        if acquisition and acquisition["sector_size"] not in (None, args.sector_size):
+            raise ValueError("sector-size không khớp acquisition geometry")
         client = Client(args.binary)
         try:
             opened = client.call("open_recovery_session", {"target_path": str(source), "sector_size": args.sector_size})
             sid = opened["session_id"]
             if args.command in {"triage", "scan"}:
                 report = {"source": str(source), "session": opened}
+                if acquisition:
+                    report["acquisition"] = acquisition
                 if args.command == "triage":
                     report["diagnosis"] = client.call("diagnose_recovery", {"session_id": sid})
                     try:

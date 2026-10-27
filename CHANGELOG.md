@@ -1,3 +1,14 @@
+# Linux Live and two-computer rescue (2026-10-27)
+
+- Add Linux inventory and guarded GNU ddrescue acquisition with explicit fast,
+  retry, resume, source identity, map coverage and sealed image/map SHA-256.
+- Add strict-key SSH control and resumable verified transfer of staged sealed
+  acquisitions; bundle toolkit files for an existing Linux Live USB.
+- Preserve acquisition unknown-region evidence in image triage; document staging
+  storage, hardware and unsupported workflows precisely.
+- Correct unsafe historical laptop guidance and test interruption, resume,
+  physical-isolation guards, map errors and real ddrescue on synthetic images.
+
 # Three-case integration (2026-10-26)
 
 - Three independent agents researched and implemented partition/boot proposals,

@@ -9,6 +9,10 @@ Xem thêm [ba nhóm recovery tích hợp](three-cases.vi.md): lost partition/boo
 FAT32 deleted metadata và file-content validation. Các nhóm có thể cùng xuất hiện
 trên một ảnh; không cần chọn một giả thuyết duy nhất.
 
+Nếu máy không khởi động được hoặc cần kết nối máy cứu hộ thứ hai, xem
+[hướng dẫn Linux Live/SSH/acquisition](two-computer-rescue.vi.md) trước. Luồng mới
+rescue.py tạo ảnh bằng GNU ddrescue và chuyển ảnh đã seal; phần dưới xử lý ảnh đó.
+
 ## 1. Cài đặt và kiểm tra
 
 Cần Rust **stable hiện hành**, trình liên kết C, Node.js >=18, Python >=3.11.
@@ -281,7 +285,7 @@ replay overlay WAL và lấy lại hit; live jobs không tự resume.
 | MP4/MOV | Box diagnostics, chunk starts, tìm moov/mdat, kiểm tra FFmpeg trên output |
 | FAT32 root deleted SFN | Bounded scan, phân biệt allocation và candidate single-cluster plan; chưa xác minh nội dung |
 | NTFS deleted records/journals, exFAT/EXT4 recovery, RAID/LVM | Chưa hỗ trợ native; dùng công cụ chuyên biệt |
-| Hỏng phần cứng, acquisition nhiều lượt có resume | GNU ddrescue/thiết bị acquisition chuyên biệt; native clone không thay thế thuật toán đó |
+| Acquisition nhiều lượt có resume từ Linux Live | rescue.py tích hợp GNU ddrescue, kiểm tra backing, fast/retry/resume và chuyển ảnh qua SSH; cần thiết bị còn cho đọc |
 | Moov mất hoàn toàn, video bị overwrite, mã hóa thiếu khóa | Không bảo đảm dựng lại; cần bằng chứng/codec metadata hoặc khóa phù hợp |
 
 Xem [capabilities](engine-capabilities.md) cho quotas, panic/I/O và transaction limits.

@@ -25,6 +25,9 @@ stdio. Read [implemented capabilities](docs/engine-capabilities.md), the
   currently disabled. Do not describe native cloning as GNU ddrescue.
 - `scripts/recovery.py`: standard-library CLI for source selection, multi-route
   triage, scans, exact-byte recovery and optional FFmpeg output verification.
+- `scripts/rescue.py`: standalone Linux acquisition before recovery; lsblk/sysfs
+  inventory/isolation, GNU ddrescue fast/retry/resume, SSH control and sealed-image
+  transfer. This is a CLI integration, not a new MCP tool or enabled legacy adapter.
 - `.agents/skills/recovery-triage/`: evidence-led workflow for broad recovery cases.
 
 ## MCP tools
@@ -70,6 +73,17 @@ exFAT/EXT4 recovery, encrypted volumes without keys, arbitrary fragment-order
 reconstruction and missing-moov regeneration are not implemented.
 A failed, skipped or unsupported operation is not successful recovery.
 
+For an unbootable computer read docs/two-computer-rescue.vi.md first. If a Live OS
+can run, inventory there and acquire onto a separate healthy disk before scanning.
+rescue.py defaults to a plan; --run writes only the destination case. Do not
+disable its mounted-source/backing checks. Preserve image.img, rescue.map,
+source.json and sealed.json/received.json. PARTIAL unresolved map regions remain
+unknown, even when represented by zero bytes. --seal prohibits further acquisition.
+SSH remote acquire needs healthy staging storage on the source computer; it is
+not direct remote-block acquisition into the destination computer. Ordinary USB
+cables do not expose another computer's internal SSD. Never claim failing hardware,
+SSH authentication, WinPE or a bootable ISO was validated by synthetic tests.
+
 ## Development
 
 Use Rust stable, Node >=18 and Python >=3.11. Build with panic=unwind; never set
@@ -85,6 +99,7 @@ python tests/test_e2e_recovery.py
 python tests/test_recovery_workbench.py
 python tests/test_deleted_recovery.py
 python tests/test_three_cases.py
+python tests/test_rescue.py
 node bin/resc-mcp.js --version
 ```
 
